@@ -54,6 +54,10 @@ class WearBridgeRepository(private val context: Context) {
    * Recent messages in a single thread, mapped to [MessageDto] with privacy applied. Ordered
    * newest first, matching [MessageTable.getConversation]'s default `DATE_RECEIVED DESC` ordering
    * (the reader is used as-is, unreversed).
+   *
+   * System/update records (group changes, disappearing-timer changes, call events, etc. — anything
+   * where [MessageRecord.isUpdate] is true) are excluded: their [MessageRecord.getDisplayBody] is
+   * synthesized system prose, not a chat message, and shouldn't be shown on the watch as one.
    */
   fun recentMessages(threadId: Long, limit: Int = DEFAULT_LIMIT): MessagesPayload {
     val privacy = SignalStore.settings.messageNotificationsPrivacy
@@ -62,12 +66,14 @@ class WearBridgeRepository(private val context: Context) {
     MessageTable.mmsReaderFor(SignalDatabase.messages.getConversation(threadId, 0, limit.toLong())).use { reader ->
       var record = reader.getNext()
       while (record != null) {
-        messages += MessageDto(
-          author = if (record.isOutgoing) SELF_AUTHOR else record.fromRecipient.getDisplayName(context),
-          body = if (privacy.isDisplayMessage) record.getDisplayBody(context).toString() else "",
-          timestamp = record.timestamp,
-          outgoing = record.isOutgoing
-        )
+        if (!record.isUpdate) {
+          messages += MessageDto(
+            author = if (record.isOutgoing) SELF_AUTHOR else record.fromRecipient.getDisplayName(context),
+            body = if (privacy.isDisplayMessage) record.getDisplayBody(context).toString() else "",
+            timestamp = record.timestamp,
+            outgoing = record.isOutgoing
+          )
+        }
         record = reader.getNext()
       }
     }
