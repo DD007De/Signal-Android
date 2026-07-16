@@ -95,6 +95,9 @@ if (libsignalClientPath is String) {
 // Main app
 include(":app")
 
+// Wear OS companion (Milestone 1 spike)
+include(":wear")
+
 // Core modules
 include(":core:util")
 include(":core:util-jvm")
