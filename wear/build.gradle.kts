@@ -21,6 +21,12 @@ dependencies {
   implementation("com.google.android.gms:play-services-wearable:19.0.0")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
+  // WEAR-002 (M2 Task 8): watch UI navigation and voice/remote-input reply. Direct coordinates for
+  // now, matching the WEAR-001 spike convention; move to the version catalog before any upstream PR.
+  implementation("androidx.wear.compose:compose-navigation:1.4.1")
+  implementation("androidx.wear:wear-input:1.2.0")
+  implementation(libs.androidx.lifecycle.viewmodel.ktx)
+
   // WEAR-002 (M2 Task 6): encrypted Room cache. Direct coordinates for now, matching the
   // WEAR-001 spike convention; move to the version catalog before any upstream PR.
   implementation("androidx.room:room-runtime:2.7.1")

@@ -18,10 +18,10 @@ import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
 class WearConversationRepository(
   private val dao: WearConversationDao,
   private val dataClient: WearDataClient
-) {
+) : WearConversationDataSource {
 
   /** The cached conversation list, newest first, mapped from Room entities back to the wire DTO. */
-  fun conversations(): Flow<List<ConversationDto>> = dao.observeAll().map { entities -> entities.map { it.toDto() } }
+  override fun conversations(): Flow<List<ConversationDto>> = dao.observeAll().map { entities -> entities.map { it.toDto() } }
 
   /**
    * The most recently received messages payload for whichever thread was last opened via
@@ -30,16 +30,16 @@ class WearConversationRepository(
    * phone; null until the first payload arrives. Messages are not persisted to Room, unlike
    * conversations.
    */
-  val messages: StateFlow<MessagesPayload?> = WearMessagesSink.state
+  override val messages: StateFlow<MessagesPayload?> = WearMessagesSink.state
 
   /** Asks the paired phone to push a fresh conversation list; the result lands in [conversations] once received and cached. */
-  suspend fun refresh(): Boolean = dataClient.requestConversations()
+  override suspend fun refresh(): Boolean = dataClient.requestConversations()
 
   /** Asks the paired phone for [threadId]'s recent messages; the result lands in [messages] once received. */
-  suspend fun openThread(threadId: Long): Boolean = dataClient.requestMessages(threadId)
+  override suspend fun openThread(threadId: Long): Boolean = dataClient.requestMessages(threadId)
 
   /** Sends a reply [body] for [threadId] to the paired phone. */
-  suspend fun reply(threadId: Long, body: String): Boolean = dataClient.sendReply(threadId, body)
+  override suspend fun reply(threadId: Long, body: String): Boolean = dataClient.sendReply(threadId, body)
 
   /** Wipes the local conversation cache, e.g. on logout/unpair. */
   suspend fun clearCache() = dao.clear()
