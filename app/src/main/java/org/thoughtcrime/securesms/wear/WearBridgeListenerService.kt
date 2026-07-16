@@ -1,12 +1,23 @@
 package org.thoughtcrime.securesms.wear
 
 import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import androidx.annotation.VisibleForTesting
+import androidx.core.app.RemoteInput
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import org.signal.core.util.concurrent.SignalExecutors
 import org.signal.core.util.logging.Log
+import org.signal.core.util.wear.ReplyRequest
 import org.signal.core.util.wear.WearBridgeProtocol
+import org.thoughtcrime.securesms.database.SignalDatabase
+import org.thoughtcrime.securesms.notifications.RemoteReplyReceiver
+import org.thoughtcrime.securesms.notifications.ReplyMethod
+import org.thoughtcrime.securesms.notifications.v2.DefaultMessageNotifier
+import org.thoughtcrime.securesms.recipients.Recipient
+import org.thoughtcrime.securesms.recipients.RecipientId
 
 /**
  * Phone-side endpoint of the Wear bridge.
@@ -46,8 +57,19 @@ class WearBridgeListenerService : WearableListenerService() {
     /**
      * Handles an incoming Wear bridge message. Extracted from [onMessageReceived] so it can be
      * unit tested with a fake [WearResponder] and without a real [WearableListenerService].
+     *
+     * [dispatchReply] is a seam over the [PATH_SEND_REPLY][WearBridgeProtocol.PATH_SEND_REPLY]
+     * branch's `sendBroadcast` call, defaulting to the real thing so tests can capture the
+     * [RemoteReplyReceiver] [Intent] instead of dispatching a real broadcast.
      */
-    fun handleMessage(context: Context, path: String, data: ByteArray, sourceNodeId: String, responder: WearResponder) {
+    fun handleMessage(
+      context: Context,
+      path: String,
+      data: ByteArray,
+      sourceNodeId: String,
+      responder: WearResponder,
+      dispatchReply: (Intent) -> Unit = { context.sendBroadcast(it) }
+    ) {
       when (path) {
         WearBridgeProtocol.PATH_PING -> {
           responder.send(sourceNodeId, WearBridgeProtocol.PATH_PONG, ByteArray(0))
@@ -79,7 +101,63 @@ class WearBridgeListenerService : WearableListenerService() {
             }
           }
         }
+
+        WearBridgeProtocol.PATH_SEND_REPLY -> {
+          SignalExecutors.BOUNDED.execute {
+            try {
+              handleSendReply(context, data, dispatchReply)
+            } catch (e: Exception) {
+              Log.w(TAG, "Failed to handle $path from $sourceNodeId", e)
+            }
+          }
+        }
       }
+    }
+
+    /**
+     * Decodes a [ReplyRequest] and, if it names a real thread and carries a non-blank body,
+     * dispatches it through the existing [RemoteReplyReceiver] pipeline (the same one the phone's
+     * own notification "reply" action uses) rather than inventing a new send path.
+     */
+    private fun handleSendReply(context: Context, data: ByteArray, dispatchReply: (Intent) -> Unit) {
+      val request = WearBridgeProtocol.decode<ReplyRequest>(data)
+      if (request.body.isBlank()) {
+        Log.w(TAG, "Received blank reply body for threadId ${request.threadId}")
+        return
+      }
+
+      val recipientId = SignalDatabase.threads.getRecipientIdForThreadId(request.threadId)
+      if (recipientId == null) {
+        Log.w(TAG, "No recipient found for threadId ${request.threadId}")
+        return
+      }
+
+      val replyMethod = ReplyMethod.forRecipient(Recipient.resolved(recipientId))
+      dispatchReply(buildReplyIntent(context, recipientId, replyMethod, request.body))
+    }
+
+    /**
+     * Builds the same [RemoteReplyReceiver.REPLY_ACTION] [Intent] that
+     * [org.thoughtcrime.securesms.notifications.v2.NotificationConversation.getRemoteReplyIntent]
+     * builds for the notification-shade "reply" action, so a watch-originated reply is
+     * indistinguishable from a phone-notification reply once it reaches [RemoteReplyReceiver].
+     * Extracted from [handleSendReply] so the intent contents can be asserted without a real
+     * broadcast.
+     */
+    @VisibleForTesting
+    internal fun buildReplyIntent(context: Context, recipientId: RecipientId, replyMethod: ReplyMethod, body: String): Intent {
+      val intent = Intent(context, RemoteReplyReceiver::class.java)
+        .setAction(RemoteReplyReceiver.REPLY_ACTION)
+        .putExtra(RemoteReplyReceiver.RECIPIENT_EXTRA, recipientId)
+        .putExtra(RemoteReplyReceiver.REPLY_METHOD, replyMethod)
+        .putExtra(RemoteReplyReceiver.EARLIEST_TIMESTAMP, System.currentTimeMillis())
+
+      val results = Bundle().apply {
+        putCharSequence(DefaultMessageNotifier.EXTRA_REMOTE_REPLY, body)
+      }
+      RemoteInput.addResultsToIntent(arrayOf(RemoteInput.Builder(DefaultMessageNotifier.EXTRA_REMOTE_REPLY).build()), intent, results)
+
+      return intent
     }
   }
 }

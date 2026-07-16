@@ -6,6 +6,8 @@
 package org.thoughtcrime.securesms.wear
 
 import android.app.Application
+import android.content.Intent
+import androidx.core.app.RemoteInput
 import androidx.test.core.app.ApplicationProvider
 import assertk.assertThat
 import assertk.assertions.hasSize
@@ -20,11 +22,16 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.signal.core.util.getParcelableExtraCompat
 import org.signal.core.util.wear.ConversationsPayload
 import org.signal.core.util.wear.MessagesPayload
+import org.signal.core.util.wear.ReplyRequest
 import org.signal.core.util.wear.WearBridgeProtocol
 import org.thoughtcrime.securesms.database.SignalDatabase
+import org.thoughtcrime.securesms.notifications.RemoteReplyReceiver
+import org.thoughtcrime.securesms.notifications.v2.DefaultMessageNotifier
 import org.thoughtcrime.securesms.preferences.widgets.NotificationPrivacyPreference
+import org.thoughtcrime.securesms.recipients.RecipientId
 import org.thoughtcrime.securesms.testutil.RecipientTestRule
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -141,6 +148,74 @@ class WearBridgeListenerServiceTest {
     }
   }
 
+  @Test
+  fun sendReply_dispatchesRemoteReplyReceiverIntentWithRecipientAndBody() {
+    val senderId = recipients.createRecipient("Carol Carlson")
+    val threadId = SignalDatabase.threads.getOrCreateThreadIdFor(senderId, false)
+
+    val intent = captureDispatchedReply { dispatch ->
+      WearBridgeListenerService.handleMessage(
+        context = context(),
+        path = WearBridgeProtocol.PATH_SEND_REPLY,
+        data = WearBridgeProtocol.encode(ReplyRequest(threadId = threadId, body = "on my way")),
+        sourceNodeId = "watch-node",
+        responder = neverInvokedResponder(),
+        dispatchReply = dispatch
+      )
+    }
+
+    assertThat(intent.action).isEqualTo(RemoteReplyReceiver.REPLY_ACTION)
+    assertThat(intent.getParcelableExtraCompat(RemoteReplyReceiver.RECIPIENT_EXTRA, RecipientId::class.java)).isEqualTo(senderId)
+
+    val remoteInputResults = RemoteInput.getResultsFromIntent(intent)
+    assertThat(remoteInputResults?.getCharSequence(DefaultMessageNotifier.EXTRA_REMOTE_REPLY)?.toString()).isEqualTo("on my way")
+  }
+
+  @Test
+  fun sendReply_blankBody_doesNotDispatch() {
+    val senderId = recipients.createRecipient("Dana Diaz")
+    val threadId = SignalDatabase.threads.getOrCreateThreadIdFor(senderId, false)
+
+    assertNoDispatch { dispatch ->
+      WearBridgeListenerService.handleMessage(
+        context = context(),
+        path = WearBridgeProtocol.PATH_SEND_REPLY,
+        data = WearBridgeProtocol.encode(ReplyRequest(threadId = threadId, body = "   ")),
+        sourceNodeId = "watch-node",
+        responder = neverInvokedResponder(),
+        dispatchReply = dispatch
+      )
+    }
+  }
+
+  @Test
+  fun sendReply_malformedData_doesNotDispatchOrCrash() {
+    assertNoDispatch { dispatch ->
+      WearBridgeListenerService.handleMessage(
+        context = context(),
+        path = WearBridgeProtocol.PATH_SEND_REPLY,
+        data = "not-json".encodeToByteArray(),
+        sourceNodeId = "watch-node",
+        responder = neverInvokedResponder(),
+        dispatchReply = dispatch
+      )
+    }
+  }
+
+  @Test
+  fun sendReply_unknownThreadId_doesNotDispatch() {
+    assertNoDispatch { dispatch ->
+      WearBridgeListenerService.handleMessage(
+        context = context(),
+        path = WearBridgeProtocol.PATH_SEND_REPLY,
+        data = WearBridgeProtocol.encode(ReplyRequest(threadId = 999_999L, body = "hello")),
+        sourceNodeId = "watch-node",
+        responder = neverInvokedResponder(),
+        dispatchReply = dispatch
+      )
+    }
+  }
+
   // region helpers
 
   private fun context() = ApplicationProvider.getApplicationContext<Application>()
@@ -184,6 +259,45 @@ class WearBridgeListenerServiceTest {
         latch.countDown()
       }
     )
+
+    assertThat(latch.await(1, TimeUnit.SECONDS)).isFalse()
+    assertThat(captured.get()).isNull()
+  }
+
+  /** A [WearBridgeListenerService.WearResponder] for reply-path tests, which never respond via the responder channel. */
+  private fun neverInvokedResponder(): WearBridgeListenerService.WearResponder = WearBridgeListenerService.WearResponder { _, _, _ -> throw AssertionError("PATH_SEND_REPLY should not send a WearResponder response") }
+
+  /**
+   * Invokes [block] with a `(Intent) -> Unit` dispatch seam that captures the first dispatched
+   * [Intent] and signals completion, then waits for it — mirrors [captureResponse] for the
+   * [WearBridgeProtocol.PATH_SEND_REPLY] path, which dispatches a [RemoteReplyReceiver] intent
+   * instead of a [WearBridgeListenerService.WearResponder] send.
+   */
+  private fun captureDispatchedReply(block: ((Intent) -> Unit) -> Unit): Intent {
+    val latch = CountDownLatch(1)
+    val captured = AtomicReference<Intent>()
+
+    block { intent ->
+      captured.set(intent)
+      latch.countDown()
+    }
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue()
+    return captured.get()
+  }
+
+  /**
+   * Invokes [block] with a dispatch seam and asserts it is never called within the wait window —
+   * used to verify blank/malformed/unknown-thread replies are swallowed rather than dispatched.
+   */
+  private fun assertNoDispatch(block: ((Intent) -> Unit) -> Unit) {
+    val latch = CountDownLatch(1)
+    val captured = AtomicReference<Intent>()
+
+    block { intent ->
+      captured.set(intent)
+      latch.countDown()
+    }
 
     assertThat(latch.await(1, TimeUnit.SECONDS)).isFalse()
     assertThat(captured.get()).isNull()
