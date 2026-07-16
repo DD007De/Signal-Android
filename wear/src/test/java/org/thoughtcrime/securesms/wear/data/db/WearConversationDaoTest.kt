@@ -77,6 +77,24 @@ class WearConversationDaoTest {
   }
 
   @Test
+  fun `replaceAll clears the table before inserting, so a dropped row disappears`() = runTest {
+    dao.upsertAll(
+      listOf(
+        WearConversationEntity(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 1),
+        WearConversationEntity(threadId = 2L, title = "Bob", lastBody = "hey", timestamp = 200L, unread = 0)
+      )
+    )
+
+    dao.replaceAll(listOf(WearConversationEntity(threadId = 2L, title = "Bob", lastBody = "yo", timestamp = 250L, unread = 3)))
+
+    val rows = dao.observeAll().first()
+    assertEquals(1, rows.size)
+    assertEquals(2L, rows.single().threadId)
+    assertEquals("yo", rows.single().lastBody)
+    assertEquals(3, rows.single().unread)
+  }
+
+  @Test
   fun `clear empties the table`() = runTest {
     dao.upsertAll(
       listOf(
