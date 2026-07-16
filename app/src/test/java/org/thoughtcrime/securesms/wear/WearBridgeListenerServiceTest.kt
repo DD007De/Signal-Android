@@ -11,6 +11,8 @@ import assertk.assertThat
 import assertk.assertions.hasSize
 import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
+import assertk.assertions.isFalse
+import assertk.assertions.isNull
 import assertk.assertions.isTrue
 import io.mockk.every
 import org.junit.Rule
@@ -113,6 +115,32 @@ class WearBridgeListenerServiceTest {
     assertThat(payload.messages[0].body).isEqualTo("hi")
   }
 
+  @Test
+  fun requestMessages_malformedThreadId_doesNotRespondOrCrash() {
+    assertNoResponse { responder ->
+      WearBridgeListenerService.handleMessage(
+        context = context(),
+        path = WearBridgeProtocol.PATH_REQUEST_MESSAGES,
+        data = "not-a-number".encodeToByteArray(),
+        sourceNodeId = "watch-node",
+        responder = responder
+      )
+    }
+  }
+
+  @Test
+  fun requestMessages_emptyThreadId_doesNotRespondOrCrash() {
+    assertNoResponse { responder ->
+      WearBridgeListenerService.handleMessage(
+        context = context(),
+        path = WearBridgeProtocol.PATH_REQUEST_MESSAGES,
+        data = ByteArray(0),
+        sourceNodeId = "watch-node",
+        responder = responder
+      )
+    }
+  }
+
   // region helpers
 
   private fun context() = ApplicationProvider.getApplicationContext<Application>()
@@ -139,6 +167,26 @@ class WearBridgeListenerServiceTest {
 
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue()
     return captured.get()
+  }
+
+  /**
+   * Invokes [block] with a [WearBridgeListenerService.WearResponder] and asserts it is never
+   * called within the wait window — used to verify malformed input is swallowed (logged, not
+   * responded to) rather than crashing or producing a bogus response.
+   */
+  private fun assertNoResponse(block: (WearBridgeListenerService.WearResponder) -> Unit) {
+    val latch = CountDownLatch(1)
+    val captured = AtomicReference<Triple<String, String, ByteArray>>()
+
+    block(
+      WearBridgeListenerService.WearResponder { nodeId, path, bytes ->
+        captured.set(Triple(nodeId, path, bytes))
+        latch.countDown()
+      }
+    )
+
+    assertThat(latch.await(1, TimeUnit.SECONDS)).isFalse()
+    assertThat(captured.get()).isNull()
   }
 
   // endregion

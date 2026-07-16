@@ -14,7 +14,7 @@ object WearBridgeProtocol {
   const val CAPABILITY = "signal_wear_bridge"
   const val PROTOCOL_VERSION = 1
 
-  // --- Milestone 1 transport smoke-test paths (removed once the ping/pong UI is replaced in M2). ---
+  // --- Milestone 1 transport smoke-test paths (deliberately retained in M2 as a transport smoke test). ---
   const val PATH_PING = "/wear-bridge/ping"
   const val PATH_PONG = "/wear-bridge/pong"
 

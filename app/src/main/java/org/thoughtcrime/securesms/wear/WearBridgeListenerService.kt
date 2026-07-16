@@ -55,16 +55,28 @@ class WearBridgeListenerService : WearableListenerService() {
 
         WearBridgeProtocol.PATH_REQUEST_CONVERSATIONS -> {
           SignalExecutors.BOUNDED.execute {
-            val payload = WearBridgeRepository(context).recentConversations()
-            responder.send(sourceNodeId, WearBridgeProtocol.PATH_CONVERSATIONS, WearBridgeProtocol.encode(payload))
+            try {
+              val payload = WearBridgeRepository(context).recentConversations()
+              responder.send(sourceNodeId, WearBridgeProtocol.PATH_CONVERSATIONS, WearBridgeProtocol.encode(payload))
+            } catch (e: Exception) {
+              Log.w(TAG, "Failed to handle $path from $sourceNodeId", e)
+            }
           }
         }
 
         WearBridgeProtocol.PATH_REQUEST_MESSAGES -> {
           SignalExecutors.BOUNDED.execute {
-            val threadId = data.decodeToString().toLong()
-            val payload = WearBridgeRepository(context).recentMessages(threadId)
-            responder.send(sourceNodeId, WearBridgeProtocol.PATH_MESSAGES, WearBridgeProtocol.encode(payload))
+            try {
+              val threadId = data.decodeToString().toLongOrNull()
+              if (threadId == null) {
+                Log.w(TAG, "Received malformed threadId for $path from $sourceNodeId")
+                return@execute
+              }
+              val payload = WearBridgeRepository(context).recentMessages(threadId)
+              responder.send(sourceNodeId, WearBridgeProtocol.PATH_MESSAGES, WearBridgeProtocol.encode(payload))
+            } catch (e: Exception) {
+              Log.w(TAG, "Failed to handle $path from $sourceNodeId", e)
+            }
           }
         }
       }
