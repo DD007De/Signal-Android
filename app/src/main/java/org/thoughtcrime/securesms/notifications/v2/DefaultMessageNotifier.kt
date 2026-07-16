@@ -30,6 +30,7 @@ import org.thoughtcrime.securesms.preferences.widgets.NotificationPrivacyPrefere
 import org.thoughtcrime.securesms.recipients.Recipient
 import org.thoughtcrime.securesms.service.KeyCachingService
 import org.thoughtcrime.securesms.util.BubbleUtil.BubbleState
+import org.thoughtcrime.securesms.wear.WearPushNotifier
 import org.whispersystems.signalservice.internal.util.Util
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
@@ -112,6 +113,7 @@ class DefaultMessageNotifier(context: Application) : MessageNotifier {
   @WorkerThread
   override fun updateNotification(context: Context) {
     updateNotification(context, null, BubbleState.HIDDEN)
+    WearPushNotifier.onNotificationRefreshed(context)
   }
 
   @WorkerThread
