@@ -3,6 +3,9 @@ package org.thoughtcrime.securesms.wear
 import android.content.Context
 import org.signal.core.util.wear.ConversationDto
 import org.signal.core.util.wear.ConversationsPayload
+import org.signal.core.util.wear.MessageDto
+import org.signal.core.util.wear.MessagesPayload
+import org.thoughtcrime.securesms.database.MessageTable
 import org.thoughtcrime.securesms.database.SignalDatabase
 import org.thoughtcrime.securesms.keyvalue.SignalStore
 
@@ -47,8 +50,34 @@ class WearBridgeRepository(private val context: Context) {
     return ConversationsPayload(conversations = conversations)
   }
 
+  /**
+   * Recent messages in a single thread, mapped to [MessageDto] with privacy applied. Ordered
+   * newest first, matching [MessageTable.getConversation]'s default `DATE_RECEIVED DESC` ordering
+   * (the reader is used as-is, unreversed).
+   */
+  fun recentMessages(threadId: Long, limit: Int = DEFAULT_LIMIT): MessagesPayload {
+    val privacy = SignalStore.settings.messageNotificationsPrivacy
+    val messages = mutableListOf<MessageDto>()
+
+    MessageTable.mmsReaderFor(SignalDatabase.messages.getConversation(threadId, 0, limit.toLong())).use { reader ->
+      var record = reader.getNext()
+      while (record != null) {
+        messages += MessageDto(
+          author = if (record.isOutgoing) SELF_AUTHOR else record.fromRecipient.getDisplayName(context),
+          body = if (privacy.isDisplayMessage) record.getDisplayBody(context).toString() else "",
+          timestamp = record.timestamp,
+          outgoing = record.isOutgoing
+        )
+        record = reader.getNext()
+      }
+    }
+
+    return MessagesPayload(threadId = threadId, messages = messages)
+  }
+
   companion object {
     private const val DEFAULT_LIMIT = 25
     private const val GENERIC_TITLE = "Signal"
+    private const val SELF_AUTHOR = "You"
   }
 }
