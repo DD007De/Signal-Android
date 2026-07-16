@@ -3,6 +3,7 @@ package org.thoughtcrime.securesms.wear.bridge
 import androidx.compose.runtime.mutableStateOf
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,10 +25,27 @@ import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
  * Milestone 2 (WEAR-002) adds the real push paths: a fresh conversation list is synced into the
  * local Room cache, and a thread's messages are forwarded to [WearMessagesSink] for the UI to
  * observe (messages are not persisted, only conversations are).
+ *
+ * Lifecycle caveat (accepted for M2): [WearableListenerService] only guarantees the hosting
+ * process stays alive for the synchronous duration of [onMessageReceived] itself; the actual work
+ * here happens in a detached coroutine launched on [scope], which the system is free to cancel
+ * (via [onDestroy]) once it decides the process is no longer needed. That can transiently drop an
+ * in-flight push. Fully closing that gap (e.g. `goAsync()`/WorkManager-backed processing) is out
+ * of scope for this milestone and needs on-device verification of the resulting lifecycle
+ * behavior. It's an acceptable gap because the sync is self-healing: the next `refresh()` /
+ * [WearBridgeProtocol.PATH_REQUEST_CONVERSATIONS] round-trip re-syncs the full, current state
+ * regardless of what was missed.
  */
 class WearMessageListenerService : WearableListenerService() {
 
-  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  /**
+   * Single-threaded on purpose: [WearBridgeProtocol.PATH_CONVERSATIONS] pushes are ordered,
+   * full-replace syncs ([WearConversationDao.replaceAll]), so two pushes handled concurrently on a
+   * multi-threaded dispatcher could race and let an older payload's `replaceAll` win, leaving the
+   * cache stuck on stale data. Confining the scope to one thread (while still using the IO pool's
+   * threads for the underlying execution) processes incoming messages strictly in arrival order.
+   */
+  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
   override fun onMessageReceived(event: MessageEvent) {
     if (event.path == WearBridgeProtocol.PATH_PONG) {
@@ -44,6 +62,8 @@ class WearMessageListenerService : WearableListenerService() {
           dao = dao,
           onMessages = { WearMessagesSink.state.value = it }
         )
+      } catch (e: CancellationException) {
+        throw e
       } catch (e: Exception) {
         Log.w(TAG, "Failed to handle ${event.path} from ${event.sourceNodeId}", e)
       }
