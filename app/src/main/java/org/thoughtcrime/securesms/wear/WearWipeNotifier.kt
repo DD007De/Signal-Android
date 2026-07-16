@@ -28,10 +28,14 @@ import org.signal.core.util.wear.WearBridgeProtocol
  * ### Call site
  * Wired into [org.thoughtcrime.securesms.delete.DeleteAccountRepository.deleteAccount], the one
  * flow found that both deregisters the account from the server *and* wipes local device data —
- * i.e. an actual "logout". It's called as the very first thing in that flow (before the
- * multi-second subscription-cancel / leave-groups / server-deletion work), so the fire-and-forget
- * [SignalExecutors.BOUNDED] send has the most possible time to complete before
- * `clearApplicationUserData()` tears down the process at the end of that same flow.
+ * i.e. an actual "logout". A review finding on the first cut of this pointed out that calling
+ * [onLogout] as the very first thing in that flow was wrong: the subscription-cancel /
+ * leave-groups / server-deletion steps that follow can each fail and early-`return` without local
+ * data ever actually being wiped, and in that case the watch shouldn't be wiped either — the
+ * account is still logged in on the phone. So [onLogout] is instead called immediately before
+ * `clearApplicationUserData()`, i.e. only on the path where local data really is about to be
+ * wiped, which still leaves the fire-and-forget [SignalExecutors.BOUNDED] send the most possible
+ * time to complete before that call tears down the process at the end of that same flow.
  *
  * Two other local-only "clear all data" call sites were found during the search for a call site
  * (both call `ActivityManager.clearApplicationUserData()` directly, same as

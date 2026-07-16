@@ -2,15 +2,19 @@ package org.thoughtcrime.securesms.wear.bridge
 
 import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.mutableStateOf
+import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.CapabilityInfo
 import com.google.android.gms.wearable.MessageEvent
+import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.signal.core.util.logging.Log
 import org.signal.core.util.wear.ConversationDto
 import org.signal.core.util.wear.ConversationsPayload
@@ -34,7 +38,11 @@ import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
  *   [org.thoughtcrime.securesms.wear.WearWipeNotifier] on the phone side) handled in
  *   [handleIncoming] below, for when the phone-side account is logged out / deleted.
  * - [onCapabilityChanged]: a local, phone-independent signal for the "watch got unpaired" case,
- *   where the phone may never get a chance to send [WearBridgeProtocol.PATH_WIPE] at all.
+ *   where the phone may never get a chance to send [WearBridgeProtocol.PATH_WIPE] at all. This one
+ *   is debounced (see [onCapabilityChanged]'s KDoc) — a review finding pointed out that reachability
+ *   flips on routine transient events too (Bluetooth out of range, phone Doze/airplane
+ *   mode/battery-dead), not just a genuine unpair, and wiping immediately on those would blank the
+ *   watch UI for no reason.
  *
  * Lifecycle caveat (accepted for M2): [WearableListenerService] only guarantees the hosting
  * process stays alive for the synchronous duration of [onMessageReceived] itself; the actual work
@@ -88,15 +96,25 @@ class WearMessageListenerService : WearableListenerService() {
   /**
    * Fired by the Wearable Data Layer (registered via the `CAPABILITY_CHANGED` manifest
    * intent-filter, mirroring how `MESSAGE_RECEIVED` is registered above) whenever the set of
-   * reachable nodes advertising [WearBridgeProtocol.CAPABILITY] changes. When that set goes empty
-   * — no phone advertising the bridge capability is reachable any more, i.e. the watch was unpaired
-   * from its phone, or the Signal app was uninstalled from it — the local cache is wiped, the same
-   * as an explicit [WearBridgeProtocol.PATH_WIPE] push would do.
+   * reachable nodes advertising [WearBridgeProtocol.CAPABILITY] changes.
    *
-   * The actual decision of whether to wipe is delegated to [shouldWipeForCapabilityChange], a pure
-   * function unit-tested directly; this override itself talks to real GmsCore
-   * ([CapabilityInfo]) and a real Room instance, so it is left to on-device verification (per the
-   * class-level lifecycle caveat, the same caveat that applies to [onMessageReceived]).
+   * A review finding on the first cut of this (WEAR-002 Task 9) pointed out that "zero reachable
+   * nodes" is not the same thing as "unpaired": reachability also flips on routine, transient
+   * events — Bluetooth briefly out of range, the phone in Doze / airplane mode / with a dead
+   * battery — none of which mean the account was actually unlinked. Wiping immediately on the
+   * zero-node callback nuked the cache and blanked the watch UI on every one of those. So this is
+   * now debounced: when [shouldWipeForCapabilityChange] says the bridge capability just dropped to
+   * zero reachable nodes, a coroutine is launched on [scope] that [delay]s [UNPAIR_CONFIRM_MS] and
+   * then re-queries [CapabilityClient] for the *current* reachable-node count; [dao] is only
+   * cleared if it is *still* zero after the wait, i.e. no node reappeared during the window. This
+   * mirrors an explicit [WearBridgeProtocol.PATH_WIPE] push in effect, but only once the "unpaired"
+   * read has been confirmed rather than acted on from a single, possibly-transient callback.
+   *
+   * The initial decision (whether to even start the confirm timer) and the re-check after the delay
+   * both go through [shouldWipeForCapabilityChange], a pure function unit-tested directly. What
+   * isn't unit-testable is the coroutine wrapper itself: it talks to real GmsCore ([CapabilityClient],
+   * [CapabilityInfo]) and a real Room instance, so — like [onMessageReceived]'s equivalent gap — it
+   * is left to on-device verification (per the class-level lifecycle caveat).
    */
   override fun onCapabilityChanged(capabilityInfo: CapabilityInfo) {
     if (!shouldWipeForCapabilityChange(capabilityInfo.name, capabilityInfo.nodes.size)) {
@@ -104,9 +122,20 @@ class WearMessageListenerService : WearableListenerService() {
     }
 
     val dao = WearCacheDatabase.getInstance(applicationContext).wearConversationDao()
+    val context = applicationContext
     scope.launch {
       try {
-        dao.clear()
+        delay(UNPAIR_CONFIRM_MS)
+
+        val reachableNodeCount = Wearable.getCapabilityClient(context)
+          .getCapability(WearBridgeProtocol.CAPABILITY, CapabilityClient.FILTER_REACHABLE)
+          .await()
+          .nodes
+          .size
+
+        if (shouldWipeForCapabilityChange(WearBridgeProtocol.CAPABILITY, reachableNodeCount)) {
+          dao.clear()
+        }
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
@@ -117,6 +146,15 @@ class WearMessageListenerService : WearableListenerService() {
 
   companion object {
     private val TAG = Log.tag(WearMessageListenerService::class.java)
+
+    /**
+     * How long [onCapabilityChanged] waits, after seeing zero reachable bridge nodes, before
+     * re-checking reachability and (only if still zero) wiping [dao]. Long enough to ride out an
+     * ordinary Bluetooth blip or the phone briefly in Doze without ever confirming as an unpair;
+     * chosen as a fixed value rather than exposed as a setting, since M2 has no UI for it.
+     */
+    @VisibleForTesting
+    internal const val UNPAIR_CONFIRM_MS = 30_000L
 
     /**
      * Handles an incoming Milestone 2 push from the phone. Extracted from [onMessageReceived] so it
@@ -159,10 +197,13 @@ class WearMessageListenerService : WearableListenerService() {
     }
 
     /**
-     * Pure decision core of [onCapabilityChanged]: wipe only when the capability that changed is
-     * the Wear bridge's own ([WearBridgeProtocol.CAPABILITY]) and no node advertising it is
-     * reachable any more. Extracted so it can be unit tested without constructing a real
-     * [CapabilityInfo], which requires GmsCore.
+     * Pure decision core used twice by [onCapabilityChanged]: once, immediately, to decide whether
+     * a zero-reachable-nodes callback is even worth starting the [UNPAIR_CONFIRM_MS] confirm timer
+     * for; and again, after the delay, to decide whether the re-checked reachable-node count still
+     * means "wipe". Both calls reduce to the same rule: wipe only when the capability that changed
+     * is the Wear bridge's own ([WearBridgeProtocol.CAPABILITY]) and no node advertising it is
+     * reachable. Extracted so it can be unit tested without constructing a real [CapabilityInfo],
+     * which requires GmsCore.
      */
     @VisibleForTesting
     internal fun shouldWipeForCapabilityChange(capabilityName: String, reachableNodeCount: Int): Boolean {
