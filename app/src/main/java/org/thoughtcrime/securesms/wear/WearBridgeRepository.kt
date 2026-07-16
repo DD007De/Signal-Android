@@ -16,6 +16,49 @@ import org.thoughtcrime.securesms.keyvalue.SignalStore
  * DTOs. Honors the notification-content privacy setting: when the user has hidden contact or
  * message content from notifications, the corresponding field is blanked before it ever leaves the
  * phone.
+ *
+ * ## Privacy posture (WEAR-002 Task 9)
+ *
+ * A summary of what's enforced where for the whole Wear bridge, gathered in one place since the
+ * individual pieces live across `:core`, `:app`, and `:wear`:
+ *
+ * - **Hide-content ([SignalStore.settings.messageNotificationsPrivacy]):** enforced *here*, on the
+ *   phone, before anything is encoded onto the wire — [recentConversations] blanks `title`/`lastBody`
+ *   and [recentMessages] blanks `body` when the user has hidden contact/message content from
+ *   notifications. The watch never receives the real text in the first place; there's nothing for
+ *   it to have cached or to un-hide.
+ * - **Update-record exclusion:** [recentMessages] drops system/update records (group changes,
+ *   disappearing-timer changes, call events, etc. — [org.thoughtcrime.securesms.database.model.MessageRecord.isUpdate])
+ *   before mapping, so synthesized system prose never gets sent as if it were a chat message.
+ * - **Disappearing messages:** enforced implicitly, not by any dedicated code path. Disappearing
+ *   messages are DB-managed on the phone — an expired row is gone from
+ *   [org.thoughtcrime.securesms.database.MessageTable] before [recentMessages] ever reads it, so it
+ *   can't be pushed to the watch. For the conversation list, [WearMessageListenerService][
+ *   org.thoughtcrime.securesms.wear.bridge.WearMessageListenerService]'s
+ *   [org.signal.core.util.wear.WearBridgeProtocol.PATH_CONVERSATIONS] handling always does a
+ *   full-replace ([org.thoughtcrime.securesms.wear.data.db.WearConversationDao.replaceAll]) of the
+ *   watch's cache, so once a disappeared message was the last message in a thread, the next push
+ *   (triggered by [WearPushNotifier.onNotificationRefreshed] or the watch's own
+ *   [org.signal.core.util.wear.WearBridgeProtocol.PATH_REQUEST_CONVERSATIONS] pull) drops its
+ *   snippet from the watch too — there's no separate "watch, please forget this message" signal
+ *   needed for that case.
+ * - **Encrypted cache:** the watch's local mirror of this data
+ *   ([org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase]) is SQLCipher-encrypted at rest,
+ *   keyed by a passphrase held in `EncryptedSharedPreferences`
+ *   ([org.thoughtcrime.securesms.wear.data.db.WearCachePassphrase], `:wear` module) — a lost or
+ *   stolen watch doesn't expose the cache in plaintext.
+ * - **Wipe on logout:** [WearWipeNotifier.onLogout] pushes
+ *   [org.signal.core.util.wear.WearBridgeProtocol.PATH_WIPE] to every reachable watch when this
+ *   phone's account is deleted/deregistered, which [WearMessageListenerService][
+ *   org.thoughtcrime.securesms.wear.bridge.WearMessageListenerService] handles by clearing the
+ *   cache wholesale. See [WearWipeNotifier]'s KDoc for exactly which call site triggers this and
+ *   which related "clear all data" call sites were deliberately left unwired pending a follow-up
+ *   decision.
+ * - **Wipe on unpair:** independent of the phone entirely —
+ *   [org.thoughtcrime.securesms.wear.bridge.WearMessageListenerService.onCapabilityChanged] clears
+ *   the watch's own cache the moment no phone advertising
+ *   [org.signal.core.util.wear.WearBridgeProtocol.CAPABILITY] is reachable any more (unpaired /
+ *   uninstalled), covering the case where the phone never gets a chance to send `PATH_WIPE` at all.
  */
 class WearBridgeRepository(private val context: Context) {
 

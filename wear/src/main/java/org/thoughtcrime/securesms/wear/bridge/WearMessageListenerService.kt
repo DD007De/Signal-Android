@@ -1,6 +1,8 @@
 package org.thoughtcrime.securesms.wear.bridge
 
+import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.mutableStateOf
+import com.google.android.gms.wearable.CapabilityInfo
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
 import kotlinx.coroutines.CancellationException
@@ -25,6 +27,14 @@ import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
  * Milestone 2 (WEAR-002) adds the real push paths: a fresh conversation list is synced into the
  * local Room cache, and a thread's messages are forwarded to [WearMessagesSink] for the UI to
  * observe (messages are not persisted, only conversations are).
+ *
+ * Privacy hardening (WEAR-002 Task 9) adds two ways the local cache gets wiped, on top of the
+ * ordinary per-push [WearConversationDao.replaceAll] full-replace sync:
+ * - [WearBridgeProtocol.PATH_WIPE]: an explicit phone -> watch signal (sent from
+ *   [org.thoughtcrime.securesms.wear.WearWipeNotifier] on the phone side) handled in
+ *   [handleIncoming] below, for when the phone-side account is logged out / deleted.
+ * - [onCapabilityChanged]: a local, phone-independent signal for the "watch got unpaired" case,
+ *   where the phone may never get a chance to send [WearBridgeProtocol.PATH_WIPE] at all.
  *
  * Lifecycle caveat (accepted for M2): [WearableListenerService] only guarantees the hosting
  * process stays alive for the synchronous duration of [onMessageReceived] itself; the actual work
@@ -75,6 +85,36 @@ class WearMessageListenerService : WearableListenerService() {
     scope.cancel()
   }
 
+  /**
+   * Fired by the Wearable Data Layer (registered via the `CAPABILITY_CHANGED` manifest
+   * intent-filter, mirroring how `MESSAGE_RECEIVED` is registered above) whenever the set of
+   * reachable nodes advertising [WearBridgeProtocol.CAPABILITY] changes. When that set goes empty
+   * — no phone advertising the bridge capability is reachable any more, i.e. the watch was unpaired
+   * from its phone, or the Signal app was uninstalled from it — the local cache is wiped, the same
+   * as an explicit [WearBridgeProtocol.PATH_WIPE] push would do.
+   *
+   * The actual decision of whether to wipe is delegated to [shouldWipeForCapabilityChange], a pure
+   * function unit-tested directly; this override itself talks to real GmsCore
+   * ([CapabilityInfo]) and a real Room instance, so it is left to on-device verification (per the
+   * class-level lifecycle caveat, the same caveat that applies to [onMessageReceived]).
+   */
+  override fun onCapabilityChanged(capabilityInfo: CapabilityInfo) {
+    if (!shouldWipeForCapabilityChange(capabilityInfo.name, capabilityInfo.nodes.size)) {
+      return
+    }
+
+    val dao = WearCacheDatabase.getInstance(applicationContext).wearConversationDao()
+    scope.launch {
+      try {
+        dao.clear()
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to clear cache after losing capability ${capabilityInfo.name}", e)
+      }
+    }
+  }
+
   companion object {
     private val TAG = Log.tag(WearMessageListenerService::class.java)
 
@@ -88,6 +128,10 @@ class WearMessageListenerService : WearableListenerService() {
      *   payload disappears from the watch too.
      * - [WearBridgeProtocol.PATH_MESSAGES]: decodes a [MessagesPayload] and forwards it to
      *   [onMessages]; messages are never written to [dao].
+     * - [WearBridgeProtocol.PATH_WIPE]: privacy hardening (WEAR-002 Task 9) — the phone lost its
+     *   account (logout / delete-all-data), so the body is ignored (it's empty) and [dao] is
+     *   cleared wholesale via [WearConversationDao.clear], same as [onCapabilityChanged] does for
+     *   the unpair case.
      *
      * Any other path is ignored (the M1 pong is handled separately in [onMessageReceived], before
      * this is called).
@@ -107,7 +151,22 @@ class WearMessageListenerService : WearableListenerService() {
         WearBridgeProtocol.PATH_MESSAGES -> {
           onMessages(WearBridgeProtocol.decode<MessagesPayload>(data))
         }
+
+        WearBridgeProtocol.PATH_WIPE -> {
+          dao.clear()
+        }
       }
+    }
+
+    /**
+     * Pure decision core of [onCapabilityChanged]: wipe only when the capability that changed is
+     * the Wear bridge's own ([WearBridgeProtocol.CAPABILITY]) and no node advertising it is
+     * reachable any more. Extracted so it can be unit tested without constructing a real
+     * [CapabilityInfo], which requires GmsCore.
+     */
+    @VisibleForTesting
+    internal fun shouldWipeForCapabilityChange(capabilityName: String, reachableNodeCount: Int): Boolean {
+      return capabilityName == WearBridgeProtocol.CAPABILITY && reachableNodeCount == 0
     }
 
     private fun ConversationDto.toEntity(): WearConversationEntity = WearConversationEntity(

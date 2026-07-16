@@ -15,7 +15,8 @@ class WearBridgeProtocolTest {
       WearBridgeProtocol.PATH_CONVERSATIONS,
       WearBridgeProtocol.PATH_REQUEST_MESSAGES,
       WearBridgeProtocol.PATH_MESSAGES,
-      WearBridgeProtocol.PATH_SEND_REPLY
+      WearBridgeProtocol.PATH_SEND_REPLY,
+      WearBridgeProtocol.PATH_WIPE
     )
     paths.forEach { assertTrue("$it should be namespaced", it.startsWith("/wear-bridge/")) }
     assertEquals("all paths must be distinct", paths.size, paths.toSet().size)

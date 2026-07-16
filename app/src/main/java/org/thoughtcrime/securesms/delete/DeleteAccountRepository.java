@@ -16,6 +16,7 @@ import org.thoughtcrime.securesms.database.model.InAppPaymentSubscriberRecord;
 import org.thoughtcrime.securesms.dependencies.AppDependencies;
 import org.thoughtcrime.securesms.groups.GroupManager;
 import org.thoughtcrime.securesms.net.SignalNetwork;
+import org.thoughtcrime.securesms.wear.WearWipeNotifier;
 import org.signal.core.util.ServiceUtil;
 import org.whispersystems.signalservice.api.NetworkResultUtil;
 import org.signal.network.exceptions.NonSuccessfulResponseCodeException;
@@ -37,6 +38,14 @@ class DeleteAccountRepository {
 
   void deleteAccount(@NonNull Consumer<DeleteAccountEvent> onDeleteAccountEvent) {
     SignalExecutors.BOUNDED.execute(() -> {
+      // Privacy hardening (WEAR-002 Task 9): fire the watch cache wipe first, before the
+      // (multi-second) subscription-cancel / leave-groups / server-deletion work below, so the
+      // fire-and-forget send has the most possible time to reach a paired watch before
+      // clearApplicationUserData() tears down this process at the end of this method. Self-guarded
+      // and off-thread; can never fail or block this flow. See WearWipeNotifier's KDoc for why this
+      // is the confirmed call site.
+      WearWipeNotifier.INSTANCE.onLogout(AppDependencies.getApplication());
+
       if (InAppPaymentsRepository.getSubscriber(InAppPaymentSubscriberRecord.Type.DONATION) != null) {
         Log.i(TAG, "deleteAccount: attempting to cancel subscription");
         onDeleteAccountEvent.accept(DeleteAccountEvent.CancelingSubscription.INSTANCE);

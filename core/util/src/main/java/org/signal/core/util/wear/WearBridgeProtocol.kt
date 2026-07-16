@@ -25,6 +25,9 @@ object WearBridgeProtocol {
   const val PATH_MESSAGES = "/wear-bridge/messages" // phone -> watch
   const val PATH_SEND_REPLY = "/wear-bridge/reply/send" // watch -> phone
 
+  // --- Privacy hardening (cache wipe on logout / unpair). ---
+  const val PATH_WIPE = "/wear-bridge/wipe" // phone -> watch; empty body, wipes the local cache
+
   @PublishedApi
   internal val json = Json { ignoreUnknownKeys = true }
 
