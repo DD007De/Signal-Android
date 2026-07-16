@@ -32,7 +32,12 @@ class WearMainActivity : ComponentActivity() {
         Button(
           onClick = {
             scope.launch {
-              LastReply.state.value = if (dataClient.ping()) "sent…" else "no phone"
+              LastReply.state.value = "sending…"
+              // On success, leave the displayed state to WearMessageListenerService's pong so a fast
+              // reply is not clobbered; only report the no-node/failure case here.
+              if (!dataClient.ping()) {
+                LastReply.state.value = "no phone"
+              }
             }
           },
           modifier = Modifier.fillMaxSize()
