@@ -34,6 +34,10 @@ fun ConversationListScreen(
   ScalingLazyColumn(modifier = modifier) {
     item { ListHeader { Text("Chats") } }
 
+    if (sorted.isEmpty()) {
+      item { Text("No conversations yet") }
+    }
+
     items(sorted, key = { it.threadId }) { conversation ->
       Chip(
         onClick = { onOpen(conversation.threadId) },

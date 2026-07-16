@@ -3,10 +3,15 @@ package org.thoughtcrime.securesms.wear
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
@@ -19,7 +24,8 @@ import org.thoughtcrime.securesms.wear.ui.ConversationScreen
 import org.thoughtcrime.securesms.wear.ui.WearConversationViewModel
 
 private const val ROUTE_CONVERSATIONS = "conversations"
-private const val ROUTE_CONVERSATION = "conversation/{threadId}"
+private const val ARG_THREAD_ID = "threadId"
+private const val ROUTE_CONVERSATION = "conversation/{$ARG_THREAD_ID}"
 
 /**
  * Milestone 2 (WEAR-002) entry screen: a two-destination [SwipeDismissableNavHost] — the
@@ -28,22 +34,26 @@ private const val ROUTE_CONVERSATION = "conversation/{threadId}"
  * pong handling ([org.thoughtcrime.securesms.wear.bridge.LastReply]) is untouched, it's just no
  * longer surfaced by this Activity.
  *
- * [viewModel] is held as a plain field rather than obtained through a [androidx.lifecycle.ViewModelProvider]:
- * this is a single, simple screen and there's no meaningful state to preserve across the
- * system-initiated recreation a [androidx.lifecycle.ViewModelProvider] would survive (the
- * conversation list re-syncs from Room instantly, and an in-flight thread re-requests its messages
- * on the next composition) — consistent with the process-wide-singleton style already used by
- * [org.thoughtcrime.securesms.wear.bridge.LastReply] and
- * [org.thoughtcrime.securesms.wear.data.WearMessagesSink] elsewhere in this module.
+ * [viewModel] is obtained through the standard [androidx.activity.viewModels] delegate (backed by a
+ * [ViewModelProvider.Factory]) rather than held as a plain field: that ties it to this Activity's
+ * [androidx.lifecycle.ViewModelStore], so `onCleared()` — and, with it, cancellation of
+ * `viewModelScope` and the `SharingStarted.Eagerly` Room-flow collector in
+ * [WearConversationViewModel.conversations] — actually runs when the Activity is finished, instead
+ * of leaking a new collector on every recreation.
  */
 class WearMainActivity : ComponentActivity() {
 
-  private val viewModel: WearConversationViewModel by lazy {
-    val repository = WearConversationRepository(
-      dao = WearCacheDatabase.getInstance(applicationContext).wearConversationDao(),
-      dataClient = WearDataClient(applicationContext)
-    )
-    WearConversationViewModel(repository)
+  private val viewModel: WearConversationViewModel by viewModels {
+    object : ViewModelProvider.Factory {
+      override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        val repository = WearConversationRepository(
+          dao = WearCacheDatabase.getInstance(applicationContext).wearConversationDao(),
+          dataClient = WearDataClient(applicationContext)
+        )
+        @Suppress("UNCHECKED_CAST")
+        return WearConversationViewModel(repository) as T
+      }
+    }
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,8 +79,11 @@ class WearMainActivity : ComponentActivity() {
             )
           }
 
-          composable(ROUTE_CONVERSATION) { backStackEntry ->
-            val threadId = backStackEntry.arguments?.getString("threadId")?.toLongOrNull()
+          composable(
+            route = ROUTE_CONVERSATION,
+            arguments = listOf(navArgument(ARG_THREAD_ID) { type = NavType.LongType })
+          ) { backStackEntry ->
+            val threadId = backStackEntry.arguments?.getLong(ARG_THREAD_ID)
             if (threadId != null) {
               ConversationScreen(
                 threadId = threadId,
