@@ -4,6 +4,7 @@ import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import org.signal.core.util.logging.Log
+import org.signal.core.util.wear.WearBridgeProtocol
 
 /**
  * Phone-side endpoint of the Wear bridge.

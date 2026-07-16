@@ -3,6 +3,7 @@ package org.thoughtcrime.securesms.wear.bridge
 import androidx.compose.runtime.mutableStateOf
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
+import org.signal.core.util.wear.WearBridgeProtocol
 
 /**
  * Watch-side receiver. Milestone 1 only handles the pong reply from the phone and surfaces it

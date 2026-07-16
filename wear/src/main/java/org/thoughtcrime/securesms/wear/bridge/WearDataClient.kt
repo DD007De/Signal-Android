@@ -6,6 +6,7 @@ import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import org.signal.core.util.logging.Log
+import org.signal.core.util.wear.WearBridgeProtocol
 
 /**
  * Watch-side client for the Data Layer bridge. Milestone 1 only sends a ping to the paired phone.
