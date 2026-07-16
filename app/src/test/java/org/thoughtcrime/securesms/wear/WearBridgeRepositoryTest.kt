@@ -91,6 +91,28 @@ class WearBridgeRepositoryTest {
   }
 
   @Test
+  fun usesGenericAuthorWhenContactPrivacyIsHidden() {
+    setPrivacy("off")
+
+    insertIncoming(time = 1000, body = "secret content")
+    insertOutgoing(time = 1001, body = "my reply")
+
+    val payload = repository.recentMessages(threadId)
+
+    assertThat(payload.messages).hasSize(2)
+
+    // Outgoing messages are still labeled "You" even with contact privacy hidden.
+    val outgoing = payload.messages[0]
+    assertThat(outgoing.author).isEqualTo("You")
+    assertThat(outgoing.body).isEqualTo("")
+
+    // Incoming author is replaced with the generic label; body stays blanked too.
+    val incoming = payload.messages[1]
+    assertThat(incoming.author).isEqualTo("Signal")
+    assertThat(incoming.body).isEqualTo("")
+  }
+
+  @Test
   fun excludesSystemUpdateRecords() {
     insertIncoming(time = 1000, body = "a real chat message")
     insertExpirationTimerUpdate(time = 1001)

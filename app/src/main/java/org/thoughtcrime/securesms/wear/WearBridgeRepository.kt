@@ -26,7 +26,10 @@ import org.thoughtcrime.securesms.keyvalue.SignalStore
  *   phone, before anything is encoded onto the wire — [recentConversations] blanks `title`/`lastBody`
  *   and [recentMessages] blanks `body` when the user has hidden contact/message content from
  *   notifications. The watch never receives the real text in the first place; there's nothing for
- *   it to have cached or to un-hide.
+ *   it to have cached or to un-hide. [recentMessages] additionally replaces an *incoming* message's
+ *   `author` with the same generic label [recentConversations] uses for `title` when contact privacy
+ *   is hidden — outgoing messages keep the fixed "You" label regardless, since that reveals nothing
+ *   about the other party.
  * - **Update-record exclusion:** [recentMessages] drops system/update records (group changes,
  *   disappearing-timer changes, call events, etc. — [org.thoughtcrime.securesms.database.model.MessageRecord.isUpdate])
  *   before mapping, so synthesized system prose never gets sent as if it were a chat message.
@@ -48,12 +51,11 @@ import org.thoughtcrime.securesms.keyvalue.SignalStore
  *   ([org.thoughtcrime.securesms.wear.data.db.WearCachePassphrase], `:wear` module) — a lost or
  *   stolen watch doesn't expose the cache in plaintext.
  * - **Wipe on logout:** [WearWipeNotifier.onLogout] pushes
- *   [org.signal.core.util.wear.WearBridgeProtocol.PATH_WIPE] to every reachable watch when this
- *   phone's account is deleted/deregistered, which [WearMessageListenerService][
+ *   [org.signal.core.util.wear.WearBridgeProtocol.PATH_WIPE] to every reachable watch whenever this
+ *   phone's locally-cached data is wiped — whether or not the account was also deregistered from
+ *   the server first — which [WearMessageListenerService][
  *   org.thoughtcrime.securesms.wear.bridge.WearMessageListenerService] handles by clearing the
- *   cache wholesale. See [WearWipeNotifier]'s KDoc for exactly which call site triggers this and
- *   which related "clear all data" call sites were deliberately left unwired pending a follow-up
- *   decision.
+ *   cache wholesale. See [WearWipeNotifier]'s KDoc for the full list of wired call sites.
  * - **Wipe on unpair:** independent of the phone entirely —
  *   [org.thoughtcrime.securesms.wear.bridge.WearMessageListenerService.onCapabilityChanged] clears
  *   the watch's own cache the moment no phone advertising
@@ -111,7 +113,13 @@ class WearBridgeRepository(private val context: Context) {
       while (record != null) {
         if (!record.isUpdate) {
           messages += MessageDto(
-            author = if (record.isOutgoing) SELF_AUTHOR else record.fromRecipient.getDisplayName(context),
+            author = if (record.isOutgoing) {
+              SELF_AUTHOR
+            } else if (privacy.isDisplayContact) {
+              record.fromRecipient.getDisplayName(context)
+            } else {
+              GENERIC_TITLE
+            },
             body = if (privacy.isDisplayMessage) record.getDisplayBody(context).toString() else "",
             timestamp = record.timestamp,
             outgoing = record.isOutgoing

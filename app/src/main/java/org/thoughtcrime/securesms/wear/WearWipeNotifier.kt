@@ -25,29 +25,32 @@ import org.signal.core.util.wear.WearBridgeProtocol
  * push at all — that's handled independently, watch-side, by
  * [org.thoughtcrime.securesms.wear.bridge.WearMessageListenerService.onCapabilityChanged].
  *
- * ### Call site
- * Wired into [org.thoughtcrime.securesms.delete.DeleteAccountRepository.deleteAccount], the one
- * flow found that both deregisters the account from the server *and* wipes local device data —
- * i.e. an actual "logout". A review finding on the first cut of this pointed out that calling
- * [onLogout] as the very first thing in that flow was wrong: the subscription-cancel /
- * leave-groups / server-deletion steps that follow can each fail and early-`return` without local
- * data ever actually being wiped, and in that case the watch shouldn't be wiped either — the
- * account is still logged in on the phone. So [onLogout] is instead called immediately before
- * `clearApplicationUserData()`, i.e. only on the path where local data really is about to be
- * wiped, which still leaves the fire-and-forget [SignalExecutors.BOUNDED] send the most possible
- * time to complete before that call tears down the process at the end of that same flow.
+ * ### Call sites
+ * Wired into every local flow found that ends in `ActivityManager.clearApplicationUserData()` —
+ * i.e. every place this phone can lose its locally-cached Signal data, whether or not the account
+ * was also deregistered from the server first:
  *
- * Two other local-only "clear all data" call sites were found during the search for a call site
- * (both call `ActivityManager.clearApplicationUserData()` directly, same as
- * `DeleteAccountRepository`, but *without* server deregistration first) and were deliberately left
- * unwired, since wiring exactly one confirmed site was preferred over guessing whether these two
- * also warrant the same hook:
- * - [org.thoughtcrime.securesms.components.settings.app.account.AccountSettingsFragment]
- *   (`deleteAllData()` / "Delete all data" in Account Settings, primary device)
- * - [org.thoughtcrime.securesms.components.settings.app.account.LinkedDeviceAccountSettingsFragment]
- *   (`OneTimeEvent.WipeData` / "Delete data on this device", linked device)
+ * - [org.thoughtcrime.securesms.delete.DeleteAccountRepository.deleteAccount] — the primary
+ *   "delete my account" flow, which both deregisters the account from the server *and* wipes local
+ *   device data. A review finding on the first cut of this pointed out that calling [onLogout] as
+ *   the very first thing in that flow was wrong: the subscription-cancel / leave-groups /
+ *   server-deletion steps that follow can each fail and early-`return` without local data ever
+ *   actually being wiped, and in that case the watch shouldn't be wiped either — the account is
+ *   still logged in on the phone. So [onLogout] is instead called immediately before
+ *   `clearApplicationUserData()`, i.e. only on the path where local data really is about to be
+ *   wiped, which still leaves the fire-and-forget [SignalExecutors.BOUNDED] send the most possible
+ *   time to complete before that call tears down the process at the end of that same flow.
+ * - [org.thoughtcrime.securesms.components.settings.app.account.AccountSettingsFragment.deleteAllData]
+ *   ("Delete all data" in Account Settings, primary device) — a local-only wipe with no server
+ *   deregistration step first. [onLogout] is called immediately before its
+ *   `clearApplicationUserData()` call, same placement rationale as above.
+ * - [org.thoughtcrime.securesms.components.settings.app.account.LinkedDeviceAccountSettingsFragment]'s
+ *   `OneTimeEvent.WipeData` handler ("Delete data on this device", linked device) — likewise a
+ *   local-only wipe; [onLogout] is called immediately before its `clearApplicationUserData()` call.
  *
- * TODO(WEAR-002): decide whether those two "clear all data" sites should also call [onLogout].
+ * All three call sites pass a real, non-test [Context], so a failure inside [onLogout] (no GmsCore,
+ * no reachable node, etc.) is caught, logged, and swallowed per the class doc above — none of them
+ * can be blocked or broken by a Wear bridge problem.
  */
 object WearWipeNotifier {
   private val TAG = Log.tag(WearWipeNotifier::class.java)

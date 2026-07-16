@@ -55,7 +55,7 @@ fun ConversationScreen(
   ScalingLazyColumn(modifier = modifier) {
     item { ListHeader { Text("Conversation") } }
 
-    items(messages, key = { it.timestamp }) { message ->
+    items(messages.withIndex().toList(), key = { (index, message) -> "$index-${message.timestamp}" }) { (_, message) ->
       MessageRow(message)
     }
 

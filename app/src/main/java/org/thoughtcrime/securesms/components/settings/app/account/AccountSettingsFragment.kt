@@ -59,6 +59,7 @@ import org.thoughtcrime.securesms.registration.ui.RegistrationActivity
 import org.thoughtcrime.securesms.util.PlayStoreUtil
 import org.thoughtcrime.securesms.util.ViewUtil
 import org.thoughtcrime.securesms.util.navigation.safeNavigate
+import org.thoughtcrime.securesms.wear.WearWipeNotifier
 import org.whispersystems.signalservice.api.kbs.PinHashUtil
 
 class AccountSettingsFragment : ComposeFragment() {
@@ -207,6 +208,12 @@ class AccountSettingsFragment : ComposeFragment() {
     }
 
     override fun deleteAllData() {
+      // WEAR-002 (M2 final-review fix): fire the watch cache wipe right before local data is
+      // wiped, same placement rationale as DeleteAccountRepository.deleteAccount. Self-guarded,
+      // off-thread, and fire-and-forget (see WearWipeNotifier's KDoc) so it can't block or break
+      // this flow even if there's no reachable watch.
+      WearWipeNotifier.onLogout(AppDependencies.application)
+
       if (!ServiceUtil.getActivityManager(AppDependencies.application).clearApplicationUserData()) {
         Toast.makeText(requireContext(), R.string.preferences_account_delete_all_data_failed, Toast.LENGTH_LONG).show()
       }

@@ -43,6 +43,7 @@ import org.thoughtcrime.securesms.R
 import org.thoughtcrime.securesms.components.settings.app.account.LinkedDeviceAccountSettingsState.OneTimeEvent
 import org.thoughtcrime.securesms.compose.rememberStatusBarColorNestedScrollModifier
 import org.thoughtcrime.securesms.dependencies.AppDependencies
+import org.thoughtcrime.securesms.wear.WearWipeNotifier
 
 /**
  * Account settings shown when the current device is a linked (non-primary) device. Account
@@ -63,6 +64,12 @@ class LinkedDeviceAccountSettingsFragment : ComposeFragment() {
         OneTimeEvent.OpenLearnMore -> LinkedDeviceAccountLearnMoreBottomSheet.show(childFragmentManager)
         OneTimeEvent.NavigateBack -> requireActivity().onBackPressedDispatcher.onBackPressed()
         OneTimeEvent.WipeData -> {
+          // WEAR-002 (M2 final-review fix): fire the watch cache wipe right before local data is
+          // wiped, same placement rationale as DeleteAccountRepository.deleteAccount. Self-guarded,
+          // off-thread, and fire-and-forget (see WearWipeNotifier's KDoc) so it can't block or
+          // break this flow even if there's no reachable watch.
+          WearWipeNotifier.onLogout(AppDependencies.application)
+
           if (!ServiceUtil.getActivityManager(AppDependencies.application).clearApplicationUserData()) {
             viewModel.onEvent(LinkedDeviceAccountSettingsEvent.DataWipeFailed)
           }
