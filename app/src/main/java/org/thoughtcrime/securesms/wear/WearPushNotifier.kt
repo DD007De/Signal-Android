@@ -32,7 +32,14 @@ object WearPushNotifier {
   fun onNotificationRefreshed(context: Context) {
     SignalExecutors.BOUNDED.execute {
       try {
-        pushToReachableNodes(context, reachableNodeIds(context), realResponder(context))
+        val nodeIds = reachableNodeIds(context)
+        val threadIds = pushToReachableNodes(context, nodeIds, realResponder(context))
+        if (nodeIds.isNotEmpty()) {
+          // Milestone 4 Task C: real contact photos, over the Asset API rather than embedded in the
+          // MessageClient conversations payload above. See WearAvatarPublisher's KDoc; like the rest
+          // of this method, not exercised by JVM unit tests since it needs a real GmsCore DataClient.
+          WearAvatarPublisher.publishAvatars(context, threadIds)
+        }
       } catch (e: Exception) {
         Log.w(TAG, "Failed to push conversation update to watch", e)
       }
@@ -59,11 +66,15 @@ object WearPushNotifier {
    * [WearBridgeProtocol.PATH_CONVERSATIONS] to each node.
    *
    * If [nodeIds] is empty this is a cheap no-op: it returns before touching the database.
+   *
+   * @return the thread ids of the pushed conversations (empty if [nodeIds] was empty), so
+   *   [onNotificationRefreshed] can hand them to [WearAvatarPublisher.publishAvatars] without
+   *   re-querying [WearBridgeRepository].
    */
   @VisibleForTesting
-  fun pushToReachableNodes(context: Context, nodeIds: List<String>, responder: WearBridgeListenerService.WearResponder) {
+  fun pushToReachableNodes(context: Context, nodeIds: List<String>, responder: WearBridgeListenerService.WearResponder): List<Long> {
     if (nodeIds.isEmpty()) {
-      return
+      return emptyList()
     }
 
     val payload = WearBridgeRepository(context).recentConversations()
@@ -72,5 +83,7 @@ object WearPushNotifier {
     nodeIds.forEach { nodeId ->
       responder.send(nodeId, WearBridgeProtocol.PATH_CONVERSATIONS, bytes)
     }
+
+    return payload.conversations.map { it.threadId }
   }
 }

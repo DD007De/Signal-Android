@@ -82,7 +82,12 @@ class WearBridgeListenerServiceTest {
         path = WearBridgeProtocol.PATH_REQUEST_CONVERSATIONS,
         data = ByteArray(0),
         sourceNodeId = "watch-node",
-        responder = responder
+        responder = responder,
+        // No-op: WearAvatarPublisher.publishAvatars (the default) needs a real GmsCore DataClient,
+        // which isn't available under Robolectric. This test only cares about the PATH_CONVERSATIONS
+        // response; requestConversations_alsoPublishesAvatarsForReturnedThreadIds below covers the
+        // publishAvatars wiring itself via a capturing fake.
+        publishAvatars = { _, _ -> }
       )
     }
 
@@ -93,6 +98,33 @@ class WearBridgeListenerServiceTest {
     assertThat(payload.conversations).hasSize(1)
     assertThat(payload.conversations[0].title).isEqualTo("Alice Anderson")
     assertThat(payload.conversations[0].lastBody).isEqualTo("hi")
+  }
+
+  @Test
+  fun requestConversations_alsoPublishesAvatarsForReturnedThreadIds() {
+    setPrivacy("all")
+
+    val senderId = recipients.createRecipient("Ivy Ingram")
+    recipients.insertIncomingMessage(senderId)
+    val threadId = SignalDatabase.threads.getOrCreateThreadIdFor(senderId, false)
+
+    val latch = CountDownLatch(1)
+    val capturedThreadIds = AtomicReference<List<Long>>()
+
+    WearBridgeListenerService.handleMessage(
+      context = context(),
+      path = WearBridgeProtocol.PATH_REQUEST_CONVERSATIONS,
+      data = ByteArray(0),
+      sourceNodeId = "watch-node",
+      responder = WearBridgeListenerService.WearResponder { _, _, _ -> },
+      publishAvatars = { _, threadIds ->
+        capturedThreadIds.set(threadIds)
+        latch.countDown()
+      }
+    )
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue()
+    assertThat(capturedThreadIds.get()).isEqualTo(listOf(threadId))
   }
 
   @Test
