@@ -5,6 +5,7 @@ import org.signal.core.util.wear.ConversationDto
 import org.signal.core.util.wear.ConversationsPayload
 import org.signal.core.util.wear.MessageDto
 import org.signal.core.util.wear.MessagesPayload
+import org.thoughtcrime.securesms.BuildConfig
 import org.thoughtcrime.securesms.database.MessageTable
 import org.thoughtcrime.securesms.database.SignalDatabase
 import org.thoughtcrime.securesms.keyvalue.SignalStore
@@ -92,7 +93,15 @@ class WearBridgeRepository(private val context: Context) {
       }
     }
 
-    return ConversationsPayload(conversations = conversations)
+    return if (BuildConfig.DEBUG && conversations.isEmpty()) {
+      // Debug-only, turnkey on-device test aid (WEAR-002): an empty database (e.g. a freshly
+      // wiped or not-yet-registered debug build) still shows something on the watch. Real data
+      // always wins — this is only reached when the real query above found nothing, and it's
+      // compiled out of release builds by the BuildConfig.DEBUG check.
+      WearDemoData.conversations()
+    } else {
+      ConversationsPayload(conversations = conversations)
+    }
   }
 
   /**
@@ -129,7 +138,13 @@ class WearBridgeRepository(private val context: Context) {
       }
     }
 
-    return MessagesPayload(threadId = threadId, messages = messages)
+    return if (BuildConfig.DEBUG && messages.isEmpty() && WearDemoData.isDemoThread(threadId)) {
+      // See the matching branch in recentConversations(): same debug-only test aid, same
+      // real-data-always-wins guard, scoped further to only the demo thread ids.
+      WearDemoData.demoMessages(threadId)
+    } else {
+      MessagesPayload(threadId = threadId, messages = messages)
+    }
   }
 
   companion object {

@@ -129,6 +129,26 @@ class WearBridgeRepositoryTest {
     assertThat(payload.messages).isEmpty()
   }
 
+  @Test
+  fun returnsDemoConversationsWhenDatabaseHasNoRealConversations() {
+    // setUp() creates a thread row via getOrCreateThreadIdFor, but no message was ever inserted
+    // into it, so it doesn't meet ThreadTable's MEANINGFUL_MESSAGES bar and the real query below
+    // returns nothing -- this debug test build (BuildConfig.DEBUG is true for
+    // testPlayProdDebugUnitTest) should fall back to WearDemoData's fixed fixture.
+    val payload = repository.recentConversations()
+
+    assertThat(payload.conversations).isEqualTo(WearDemoData.conversations().conversations)
+  }
+
+  @Test
+  fun returnsDemoMessagesWhenDemoThreadHasNoRealMessages() {
+    val demoThreadId = WearDemoData.conversations().conversations.first().threadId
+
+    val payload = repository.recentMessages(demoThreadId)
+
+    assertThat(payload.messages).isEqualTo(WearDemoData.demoMessages(demoThreadId).messages)
+  }
+
   // region helpers
 
   private fun setPrivacy(preference: String) {
