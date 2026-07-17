@@ -18,7 +18,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.signal.core.util.wear.ConversationDto
 import org.signal.core.util.wear.ConversationsPayload
+import org.signal.core.util.wear.NotifyDto
 import org.signal.core.util.wear.WearBridgeProtocol
 import org.thoughtcrime.securesms.preferences.widgets.NotificationPrivacyPreference
 import org.thoughtcrime.securesms.testutil.RecipientTestRule
@@ -86,6 +88,42 @@ class WearPushNotifierTest {
     WearPushNotifier.pushToReachableNodes(context(), emptyList(), responder)
 
     assertThat(captured).isEmpty()
+  }
+
+  @Test
+  fun pushesNotifyForEachAlertedThreadWithPrivacyFilteredContent() {
+    val captured = mutableListOf<Triple<String, String, ByteArray>>()
+    val responder = WearBridgeListenerService.WearResponder { nodeId, path, bytes ->
+      captured += Triple(nodeId, path, bytes)
+    }
+
+    WearPushNotifier.pushNotificationsToNodes(
+      conversations = listOf(
+        ConversationDto(threadId = 42L, title = "Jan Willem", lastBody = "Hoi", timestamp = 5L, unread = 1),
+        ConversationDto(threadId = 99L, title = "Other", lastBody = "x", timestamp = 4L, unread = 0)
+      ),
+      nodeIds = listOf("nodeA"),
+      threadIds = listOf(42L),
+      responder = responder
+    )
+
+    assertThat(captured).hasSize(1)
+    val (nodeId, path, bytes) = captured.single()
+    assertThat(nodeId).isEqualTo("nodeA")
+    assertThat(path).isEqualTo(WearBridgeProtocol.PATH_NOTIFY)
+
+    val dto = WearBridgeProtocol.decode<NotifyDto>(bytes)
+    assertThat(dto.threadId).isEqualTo(42L)
+    assertThat(dto.title).isEqualTo("Jan Willem")
+    assertThat(dto.body).isEqualTo("Hoi")
+  }
+
+  @Test
+  fun pushNotificationsToNodes_isNoOpWithNoNodesOrNoThreads() {
+    val responder = WearBridgeListenerService.WearResponder { _, _, _ -> throw AssertionError("should not send") }
+
+    WearPushNotifier.pushNotificationsToNodes(emptyList(), emptyList(), listOf(1L), responder)
+    WearPushNotifier.pushNotificationsToNodes(listOf(ConversationDto(1L, "t", "b", 1L, 0)), listOf("n"), emptyList(), responder)
   }
 
   // region helpers
