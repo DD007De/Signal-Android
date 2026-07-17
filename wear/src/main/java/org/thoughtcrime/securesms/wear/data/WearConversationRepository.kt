@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import org.signal.core.util.wear.ConversationDto
+import org.signal.core.util.wear.MessageDto
 import org.signal.core.util.wear.MessagesPayload
 import org.thoughtcrime.securesms.wear.bridge.WearDataClient
 import org.thoughtcrime.securesms.wear.data.db.WearConversationDao
@@ -38,8 +39,17 @@ class WearConversationRepository(
   /** Asks the paired phone for [threadId]'s recent messages; the result lands in [messages] once received. */
   override suspend fun openThread(threadId: Long): Boolean = dataClient.requestMessages(threadId)
 
-  /** Sends a reply [body] for [threadId] to the paired phone. */
-  override suspend fun reply(threadId: Long, body: String): Boolean = dataClient.sendReply(threadId, body)
+  /**
+   * Sends a reply [body] for [threadId] to the paired phone. Optimistically appends it to
+   * [WearMessagesSink] first so it shows up at the bottom of the open conversation instantly,
+   * rather than waiting for the fire-and-forget send's round trip. The next authoritative
+   * [org.signal.core.util.wear.WearBridgeProtocol.PATH_MESSAGES] push overwrites the sink
+   * wholesale, reconciling the optimistic entry with the real one.
+   */
+  override suspend fun reply(threadId: Long, body: String): Boolean {
+    WearMessagesSink.state.value = appendOptimisticReply(WearMessagesSink.state.value, threadId, body, System.currentTimeMillis())
+    return dataClient.sendReply(threadId, body)
+  }
 
   /** Tells the paired phone to mark [threadId] read. */
   override suspend fun markRead(threadId: Long) {
@@ -81,4 +91,11 @@ class WearConversationRepository(
  */
 object WearMessagesSink {
   val state = MutableStateFlow<MessagesPayload?>(null)
+}
+
+/** Appends an outgoing [MessageDto] to [current] iff it is the open thread's payload; else returns it unchanged. */
+fun appendOptimisticReply(current: MessagesPayload?, threadId: Long, body: String, timestamp: Long): MessagesPayload? {
+  if (current == null || current.threadId != threadId) return current
+  // author is not rendered for outgoing bubbles (ConversationScreen keys off `outgoing`), so its value is cosmetic.
+  return current.copy(messages = current.messages + MessageDto(author = "You", body = body, timestamp = timestamp, outgoing = true))
 }
