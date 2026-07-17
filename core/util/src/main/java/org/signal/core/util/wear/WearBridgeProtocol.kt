@@ -25,6 +25,10 @@ object WearBridgeProtocol {
   const val PATH_MESSAGES = "/wear-bridge/messages" // phone -> watch
   const val PATH_SEND_REPLY = "/wear-bridge/reply/send" // watch -> phone
 
+  // --- WEAR-005: per-message notification push (phone -> watch). Fired only for threads the phone
+  // itself alerts on, so the watch inherits mute / notification-privacy / DND / notifications-off.
+  const val PATH_NOTIFY = "/wear-bridge/notify"
+
   // --- Privacy hardening (cache wipe on logout / unpair). ---
   const val PATH_WIPE = "/wear-bridge/wipe" // phone -> watch; empty body, wipes the local cache
 
@@ -95,4 +99,16 @@ data class MuteRequest(
   val version: Int = WearBridgeProtocol.PROTOCOL_VERSION,
   val threadId: Long,
   val muteUntil: Long
+)
+
+@Serializable
+data class NotifyDto(
+  val version: Int = WearBridgeProtocol.PROTOCOL_VERSION,
+  val threadId: Long,
+  // Already privacy-filtered on the phone: title is the generic app name when contact privacy is
+  // hidden, body is blank when message privacy is hidden. The watch substitutes a localized generic
+  // string for a blank body; it never fabricates content.
+  val title: String,
+  val body: String,
+  val timestamp: Long
 )
