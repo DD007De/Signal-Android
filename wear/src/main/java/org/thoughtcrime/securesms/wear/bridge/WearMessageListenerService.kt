@@ -42,7 +42,10 @@ import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
  * observe (messages are not persisted, only conversations are).
  *
  * Privacy hardening (WEAR-002 Task 9) adds two ways the local cache gets wiped, on top of the
- * ordinary per-push [WearConversationDao.replaceAll] full-replace sync:
+ * ordinary per-push [WearConversationDao.replaceAll] full-replace sync. Both paths clear
+ * [WearConversationDao] and [WearAvatarCache] together (a Milestone 4 Task D (WEAR-004) fix: a
+ * cached contact face photo previously kept rendering after either wipe path fired, until the
+ * process restarted):
  * - [WearBridgeProtocol.PATH_WIPE]: an explicit phone -> watch signal (sent from
  *   [org.thoughtcrime.securesms.wear.WearWipeNotifier] on the phone side) handled in
  *   [handleIncoming] below, for when the phone-side account is logged out / deleted.
@@ -121,10 +124,12 @@ class WearMessageListenerService : WearableListenerService() {
    * zero-node callback nuked the cache and blanked the watch UI on every one of those. So this is
    * now debounced: when [shouldWipeForCapabilityChange] says the bridge capability just dropped to
    * zero reachable nodes, a coroutine is launched on [scope] that [delay]s [UNPAIR_CONFIRM_MS] and
-   * then re-queries [CapabilityClient] for the *current* reachable-node count; [dao] is only
-   * cleared if it is *still* zero after the wait, i.e. no node reappeared during the window. This
-   * mirrors an explicit [WearBridgeProtocol.PATH_WIPE] push in effect, but only once the "unpaired"
-   * read has been confirmed rather than acted on from a single, possibly-transient callback.
+   * then re-queries [CapabilityClient] for the *current* reachable-node count; [dao] and
+   * [WearAvatarCache] are only cleared if it is *still* zero after the wait, i.e. no node
+   * reappeared during the window — both are cleared together (Milestone 4 Task D (WEAR-004) fix)
+   * so a cached contact photo doesn't outlive the rest of the wipe. This mirrors an explicit
+   * [WearBridgeProtocol.PATH_WIPE] push in effect, but only once the "unpaired" read has been
+   * confirmed rather than acted on from a single, possibly-transient callback.
    *
    * The initial decision (whether to even start the confirm timer) and the re-check after the delay
    * both go through [shouldWipeForCapabilityChange], a pure function unit-tested directly. What
@@ -151,6 +156,7 @@ class WearMessageListenerService : WearableListenerService() {
 
         if (shouldWipeForCapabilityChange(WearBridgeProtocol.CAPABILITY, reachableNodeCount)) {
           dao.clear()
+          WearAvatarCache.clear()
         }
       } catch (e: CancellationException) {
         throw e
@@ -295,7 +301,9 @@ class WearMessageListenerService : WearableListenerService() {
      * - [WearBridgeProtocol.PATH_WIPE]: privacy hardening (WEAR-002 Task 9) — the phone lost its
      *   account (logout / delete-all-data), so the body is ignored (it's empty) and [dao] is
      *   cleared wholesale via [WearConversationDao.clear], same as [onCapabilityChanged] does for
-     *   the unpair case.
+     *   the unpair case. [WearAvatarCache] is cleared alongside it (Milestone 4 Task D (WEAR-004)
+     *   fix) — otherwise a cached contact face photo keeps rendering after the wipe, until the
+     *   process restarts.
      *
      * Any other path is ignored (the M1 pong is handled separately in [onMessageReceived], before
      * this is called).
@@ -318,6 +326,7 @@ class WearMessageListenerService : WearableListenerService() {
 
         WearBridgeProtocol.PATH_WIPE -> {
           dao.clear()
+          WearAvatarCache.clear()
         }
       }
     }

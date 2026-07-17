@@ -1,5 +1,6 @@
 package org.thoughtcrime.securesms.wear.bridge
 
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
@@ -18,6 +19,7 @@ import org.signal.core.util.wear.ConversationsPayload
 import org.signal.core.util.wear.MessageDto
 import org.signal.core.util.wear.MessagesPayload
 import org.signal.core.util.wear.WearBridgeProtocol
+import org.thoughtcrime.securesms.wear.data.WearAvatarCache
 import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
 import org.thoughtcrime.securesms.wear.data.db.WearConversationDao
 import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
@@ -54,6 +56,9 @@ class WearMessageListenerServiceTest {
   @After
   fun tearDown() {
     database.close()
+    // WearAvatarCache is a process-wide singleton; reset it so seeded state doesn't leak into
+    // other tests (mirrors WearAvatarCacheTest's own tearDown).
+    WearAvatarCache.clear()
   }
 
   @Test
@@ -157,6 +162,24 @@ class WearMessageListenerServiceTest {
     )
 
     assertEquals(0, dao.observeAll().first().size)
+  }
+
+  @Test
+  fun `PATH_WIPE also clears WearAvatarCache alongside the DAO`() = runTest {
+    dao.upsertAll(listOf(WearConversationEntity(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 1)))
+    WearAvatarCache.put(1L, ImageBitmap(4, 4))
+    WearAvatarCache.put(2L, ImageBitmap(4, 4))
+    assertEquals(2, WearAvatarCache.map.size)
+
+    WearMessageListenerService.handleIncoming(
+      path = WearBridgeProtocol.PATH_WIPE,
+      data = ByteArray(0),
+      dao = dao,
+      onMessages = { throw AssertionError("PATH_WIPE should not invoke onMessages") }
+    )
+
+    assertEquals(0, dao.observeAll().first().size)
+    assertEquals(emptyMap<Long, ImageBitmap>(), WearAvatarCache.map)
   }
 
   @Test

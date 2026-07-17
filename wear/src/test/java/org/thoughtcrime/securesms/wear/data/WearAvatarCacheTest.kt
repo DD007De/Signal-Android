@@ -93,4 +93,18 @@ class WearAvatarCacheTest {
     WearAvatarCache.remove(5L)
     assertEquals(emptyMap<Long, ImageBitmap>(), WearAvatarCache.map)
   }
+
+  @Test
+  fun `clear empties every cached entry regardless of thread id`() {
+    WearAvatarCache.put(1L, ImageBitmap(4, 4))
+    WearAvatarCache.put(2L, ImageBitmap(8, 8))
+    WearAvatarCache.put(3L, ImageBitmap(16, 16))
+
+    WearAvatarCache.clear()
+
+    assertEquals(emptyMap<Long, ImageBitmap>(), WearAvatarCache.map)
+    assertNull(WearAvatarCache.get(1L))
+    assertNull(WearAvatarCache.get(2L))
+    assertNull(WearAvatarCache.get(3L))
+  }
 }

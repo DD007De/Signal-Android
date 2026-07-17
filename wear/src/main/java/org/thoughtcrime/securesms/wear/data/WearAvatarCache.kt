@@ -47,8 +47,14 @@ object WearAvatarCache {
   fun get(threadId: Long): ImageBitmap? = avatars[threadId]
 
   /**
-   * Test-only: clears every cached avatar. [WearAvatarCache] is a process-wide singleton, so tests
-   * that populate it must reset it in `@After`/`tearDown` to avoid leaking state into other tests.
+   * Clears every cached avatar. Called in production by
+   * [org.thoughtcrime.securesms.wear.bridge.WearMessageListenerService] alongside
+   * [org.thoughtcrime.securesms.wear.data.db.WearConversationDao.clear] on both privacy-wipe paths
+   * (an explicit [org.signal.core.util.wear.WearBridgeProtocol.PATH_WIPE] push, and the debounced
+   * unpair-confirmed wipe in `onCapabilityChanged`) — without this, a cached contact face photo
+   * would keep rendering after the phone account is logged out or the watch is unpaired, until the
+   * process restarts. [WearAvatarCache] is a process-wide singleton, so tests that populate it must
+   * also reset it in `@After`/`tearDown` to avoid leaking state into other tests.
    */
   fun clear() {
     avatars.clear()
