@@ -83,6 +83,38 @@ class WearConversationViewModelTest {
   }
 
   @Test
+  fun `a conversations push while a thread is open re-opens it`() = runTest(dispatcher) {
+    val fake = FakeWearConversationDataSource()
+    val viewModel = WearConversationViewModel(fake)
+
+    viewModel.open(threadId = 42L)
+    dispatcher.scheduler.advanceUntilIdle()
+    assertEquals(listOf(42L), fake.openedThreadIds)
+
+    // Simulate a phone list push: a new conversations list arrives.
+    fake.conversationsFlow.value = listOf(
+      ConversationDto(threadId = 42L, title = "Alice", lastBody = "hi again", timestamp = 200L, unread = 1)
+    )
+    dispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(42L, 42L), fake.openedThreadIds)
+  }
+
+  @Test
+  fun `a conversations push while no thread is open does not call openThread`() = runTest(dispatcher) {
+    val fake = FakeWearConversationDataSource()
+    val viewModel = WearConversationViewModel(fake)
+    dispatcher.scheduler.advanceUntilIdle()
+
+    fake.conversationsFlow.value = listOf(
+      ConversationDto(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 1)
+    )
+    dispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(emptyList<Long>(), fake.openedThreadIds)
+  }
+
+  @Test
   fun `reply calls through to the repository`() = runTest(dispatcher) {
     val fake = FakeWearConversationDataSource()
     val viewModel = WearConversationViewModel(fake)
