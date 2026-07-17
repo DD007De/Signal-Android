@@ -116,6 +116,32 @@ class WearPushNotifierTest {
     assertThat(dto.threadId).isEqualTo(42L)
     assertThat(dto.title).isEqualTo("Jan Willem")
     assertThat(dto.body).isEqualTo("Hoi")
+    assertThat(dto.timestamp).isEqualTo(5L)
+  }
+
+  @Test
+  fun pushNotificationsToNodes_skipsThreadIdsAbsentFromConversations() {
+    val captured = mutableListOf<Triple<String, String, ByteArray>>()
+    val responder = WearBridgeListenerService.WearResponder { nodeId, path, bytes ->
+      captured += Triple(nodeId, path, bytes)
+    }
+
+    WearPushNotifier.pushNotificationsToNodes(
+      conversations = listOf(
+        ConversationDto(threadId = 42L, title = "Jan Willem", lastBody = "Hoi", timestamp = 5L, unread = 1)
+      ),
+      nodeIds = listOf("nodeA"),
+      threadIds = listOf(42L, 999L),
+      responder = responder
+    )
+
+    assertThat(captured).hasSize(1)
+    val (nodeId, path, bytes) = captured.single()
+    assertThat(nodeId).isEqualTo("nodeA")
+    assertThat(path).isEqualTo(WearBridgeProtocol.PATH_NOTIFY)
+
+    val dto = WearBridgeProtocol.decode<NotifyDto>(bytes)
+    assertThat(dto.threadId).isEqualTo(42L)
   }
 
   @Test
