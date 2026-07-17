@@ -54,7 +54,7 @@ object WearNotifier {
     )
 
     val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-      .setSmallIcon(R.mipmap.ic_launcher)
+      .setSmallIcon(R.drawable.ic_launcher_monochrome)
       .setContentTitle(dto.title)
       .setContentText(text)
       .setAutoCancel(true)
