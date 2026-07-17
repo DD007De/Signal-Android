@@ -113,7 +113,6 @@ class DefaultMessageNotifier(context: Application) : MessageNotifier {
   @WorkerThread
   override fun updateNotification(context: Context) {
     updateNotification(context, null, BubbleState.HIDDEN)
-    WearPushNotifier.onNotificationRefreshed(context)
   }
 
   @WorkerThread
@@ -143,6 +142,12 @@ class DefaultMessageNotifier(context: Application) : MessageNotifier {
       Log.w(TAG, "Attempting to update notifications without local self, aborting")
       return
     }
+
+    // WEAR-005: keep the watch's conversation list in sync on EVERY notification refresh — the
+    // incoming-message path uses the per-conversation overload, which previously never pushed. Placed
+    // before the notifications-disabled / empty-state early returns because the watch's list mirrors
+    // conversations regardless of the phone's notification prefs (consistent with its pull path).
+    WearPushNotifier.onNotificationRefreshed(context)
 
     val currentLockStatus: Boolean = KeyCachingService.isLocked(context)
     val currentPrivacyPreference: NotificationPrivacyPreference = SignalStore.settings.messageNotificationsPrivacy
@@ -213,6 +218,10 @@ class DefaultMessageNotifier(context: Application) : MessageNotifier {
 
     previousState = state
     lastAudibleNotification = System.currentTimeMillis()
+
+    // WEAR-005: notify the watch for exactly the threads the phone alerted on, so mute /
+    // notification-privacy / notification-profiles / notifications-off are all honoured implicitly.
+    WearPushNotifier.pushMessageNotifications(context, threadsThatAlerted.map { it.threadId })
 
     updateReminderTimestamps(context, alertOverrides, threadsThatAlerted)
     NotificationThumbnails.removeAllExcept(state.notificationItems)
