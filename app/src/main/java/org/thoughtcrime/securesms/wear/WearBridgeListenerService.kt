@@ -10,9 +10,12 @@ import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
 import org.signal.core.util.concurrent.SignalExecutors
 import org.signal.core.util.logging.Log
+import org.signal.core.util.wear.MuteRequest
 import org.signal.core.util.wear.ReplyRequest
 import org.signal.core.util.wear.WearBridgeProtocol
 import org.thoughtcrime.securesms.database.SignalDatabase
+import org.thoughtcrime.securesms.dependencies.AppDependencies
+import org.thoughtcrime.securesms.notifications.MarkReadReceiver
 import org.thoughtcrime.securesms.notifications.RemoteReplyReceiver
 import org.thoughtcrime.securesms.notifications.ReplyMethod
 import org.thoughtcrime.securesms.notifications.v2.DefaultMessageNotifier
@@ -111,6 +114,26 @@ class WearBridgeListenerService : WearableListenerService() {
             }
           }
         }
+
+        WearBridgeProtocol.PATH_MARK_READ -> {
+          SignalExecutors.BOUNDED.execute {
+            try {
+              handleMarkRead(context, data)
+            } catch (e: Exception) {
+              Log.w(TAG, "Failed to handle $path from $sourceNodeId", e)
+            }
+          }
+        }
+
+        WearBridgeProtocol.PATH_MUTE -> {
+          SignalExecutors.BOUNDED.execute {
+            try {
+              handleMute(data)
+            } catch (e: Exception) {
+              Log.w(TAG, "Failed to handle $path from $sourceNodeId", e)
+            }
+          }
+        }
       }
     }
 
@@ -134,6 +157,39 @@ class WearBridgeListenerService : WearableListenerService() {
 
       val replyMethod = ReplyMethod.forRecipient(Recipient.resolved(recipientId))
       dispatchReply(buildReplyIntent(context, recipientId, replyMethod, request.body))
+    }
+
+    /**
+     * Decodes a thread ID and, if it names a real thread, marks it read through the same
+     * [SignalDatabase.threads]`.setRead` -> [MarkReadReceiver.process] -> notifier-refresh pipeline
+     * that [org.thoughtcrime.securesms.notifications.RemoteReplyReceiver] uses after sending a reply,
+     * so a watch-originated mark-read is indistinguishable from any other read-state change.
+     */
+    private fun handleMarkRead(context: Context, data: ByteArray) {
+      val threadId = data.decodeToString().toLongOrNull()
+      if (threadId == null) {
+        Log.w(TAG, "Received malformed threadId for ${WearBridgeProtocol.PATH_MARK_READ}")
+        return
+      }
+
+      val markedMessages = SignalDatabase.threads.setRead(threadId)
+      MarkReadReceiver.process(markedMessages)
+      AppDependencies.messageNotifier.updateNotification(context)
+    }
+
+    /**
+     * Decodes a [MuteRequest] and, if it names a real thread, mutes (or unmutes) that thread's
+     * recipient until [MuteRequest.muteUntil].
+     */
+    private fun handleMute(data: ByteArray) {
+      val request = WearBridgeProtocol.decode<MuteRequest>(data)
+      val recipientId = SignalDatabase.threads.getRecipientIdForThreadId(request.threadId)
+      if (recipientId == null) {
+        Log.w(TAG, "No recipient found for threadId ${request.threadId}")
+        return
+      }
+
+      SignalDatabase.recipients.setMuted(recipientId, request.muteUntil)
     }
 
     /**

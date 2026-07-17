@@ -25,6 +25,7 @@ import org.robolectric.annotation.Config
 import org.signal.core.util.getParcelableExtraCompat
 import org.signal.core.util.wear.ConversationsPayload
 import org.signal.core.util.wear.MessagesPayload
+import org.signal.core.util.wear.MuteRequest
 import org.signal.core.util.wear.ReplyRequest
 import org.signal.core.util.wear.WearBridgeProtocol
 import org.thoughtcrime.securesms.database.SignalDatabase
@@ -216,9 +217,121 @@ class WearBridgeListenerServiceTest {
     }
   }
 
+  @Test
+  fun markRead_marksSeededUnreadThreadRead() {
+    val senderId = recipients.createRecipient("Erin Evans")
+    recipients.insertIncomingMessage(senderId)
+    val threadId = SignalDatabase.threads.getOrCreateThreadIdFor(senderId, false)
+
+    assertThat(SignalDatabase.threads.getThreadRecord(threadId)?.unreadCount).isEqualTo(1)
+
+    WearBridgeListenerService.handleMessage(
+      context = context(),
+      path = WearBridgeProtocol.PATH_MARK_READ,
+      data = threadId.toString().encodeToByteArray(),
+      sourceNodeId = "watch-node",
+      responder = neverInvokedResponder()
+    )
+
+    awaitCondition { SignalDatabase.threads.getThreadRecord(threadId)?.unreadCount == 0 }
+  }
+
+  @Test
+  fun markRead_malformedThreadId_doesNotMutateOrCrash() {
+    val senderId = recipients.createRecipient("Erin Evans")
+    recipients.insertIncomingMessage(senderId)
+    val threadId = SignalDatabase.threads.getOrCreateThreadIdFor(senderId, false)
+
+    WearBridgeListenerService.handleMessage(
+      context = context(),
+      path = WearBridgeProtocol.PATH_MARK_READ,
+      data = "not-a-number".encodeToByteArray(),
+      sourceNodeId = "watch-node",
+      responder = neverInvokedResponder()
+    )
+
+    // No positive signal to await on malformed input, so give the SignalExecutors.BOUNDED work a
+    // window to (mis)behave, then assert the thread is still unread -- proves the malformed
+    // threadId was logged-and-returned rather than crashing or falling through to a mutation.
+    Thread.sleep(500)
+    assertThat(SignalDatabase.threads.getThreadRecord(threadId)?.unreadCount).isEqualTo(1)
+  }
+
+  @Test
+  fun mute_setsRecipientMuteUntilForSeededThread() {
+    val senderId = recipients.createRecipient("Frank Foster")
+    val threadId = SignalDatabase.threads.getOrCreateThreadIdFor(senderId, false)
+    val muteUntil = 1_700_000_000_000L
+
+    assertThat(SignalDatabase.recipients.getRecord(senderId).muteUntil).isEqualTo(0L)
+
+    WearBridgeListenerService.handleMessage(
+      context = context(),
+      path = WearBridgeProtocol.PATH_MUTE,
+      data = WearBridgeProtocol.encode(MuteRequest(threadId = threadId, muteUntil = muteUntil)),
+      sourceNodeId = "watch-node",
+      responder = neverInvokedResponder()
+    )
+
+    awaitCondition { SignalDatabase.recipients.getRecord(senderId).muteUntil == muteUntil }
+  }
+
+  @Test
+  fun mute_malformedData_doesNotMutateOrCrash() {
+    val senderId = recipients.createRecipient("Gina Grant")
+    SignalDatabase.threads.getOrCreateThreadIdFor(senderId, false)
+
+    WearBridgeListenerService.handleMessage(
+      context = context(),
+      path = WearBridgeProtocol.PATH_MUTE,
+      data = "not-json".encodeToByteArray(),
+      sourceNodeId = "watch-node",
+      responder = neverInvokedResponder()
+    )
+
+    Thread.sleep(500)
+    assertThat(SignalDatabase.recipients.getRecord(senderId).muteUntil).isEqualTo(0L)
+  }
+
+  @Test
+  fun mute_unknownThreadId_doesNotMutateAnyRecipientOrCrash() {
+    val senderId = recipients.createRecipient("Henry Hill")
+    SignalDatabase.threads.getOrCreateThreadIdFor(senderId, false)
+
+    WearBridgeListenerService.handleMessage(
+      context = context(),
+      path = WearBridgeProtocol.PATH_MUTE,
+      data = WearBridgeProtocol.encode(MuteRequest(threadId = 999_999L, muteUntil = 1_700_000_000_000L)),
+      sourceNodeId = "watch-node",
+      responder = neverInvokedResponder()
+    )
+
+    // threadId 999_999 names no seeded thread, so the unrelated seeded recipient's mute state
+    // must be left untouched -- proves the missing-recipient branch was logged-and-returned
+    // rather than crashing or falling through to a mutation of an arbitrary recipient.
+    Thread.sleep(500)
+    assertThat(SignalDatabase.recipients.getRecord(senderId).muteUntil).isEqualTo(0L)
+  }
+
   // region helpers
 
   private fun context() = ApplicationProvider.getApplicationContext<Application>()
+
+  /**
+   * Polls [predicate] until it's true or [timeoutMs] elapses -- used for the
+   * [WearBridgeProtocol.PATH_MARK_READ] and [WearBridgeProtocol.PATH_MUTE] paths, which mutate the
+   * database off-thread via `SignalExecutors.BOUNDED` but (unlike the M2 request/response and
+   * reply paths) don't call back through a [WearBridgeListenerService.WearResponder] or dispatch
+   * seam, so there's no single event to latch onto.
+   */
+  private fun awaitCondition(timeoutMs: Long = 5_000, predicate: () -> Boolean) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() < deadline) {
+      if (predicate()) return
+      Thread.sleep(25)
+    }
+    throw AssertionError("Timed out waiting for expected condition")
+  }
 
   private fun setPrivacy(preference: String) {
     every { recipients.signalStore.settings.messageNotificationsPrivacy } returns NotificationPrivacyPreference(preference)
