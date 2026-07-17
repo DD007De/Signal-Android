@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Dutch translations; see values/strings.xml for context on each string. -->
+
+  <!-- ConversationListScreen -->
+  <string name="wear_chats_title">Chats</string>
+  <string name="wear_no_conversations">Nog geen gesprekken</string>
+
+  <!-- ConversationScreen -->
+  <string name="wear_conversation_title_fallback">Gesprek</string>
+  <string name="wear_reply">Antwoorden</string>
+  <string name="wear_mute">Dempen</string>
+  <string name="wear_unmute">Dempen opheffen</string>
+
+  <string-array name="wear_preset_replies">
+    <item>👍</item>
+    <item>Oké</item>
+    <item>Onderweg</item>
+    <item>Later meer</item>
+  </string-array>
+</resources>

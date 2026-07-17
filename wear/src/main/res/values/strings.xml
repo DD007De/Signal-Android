@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Milestone 4 Task D (WEAR-004): every user-facing string on the watch UI, localized so the
+       screens follow the watch's system language instead of being hardcoded English. See
+       values-nl/strings.xml for the Dutch translations. -->
+
+  <!-- ConversationListScreen -->
+  <string name="wear_chats_title">Chats</string>
+  <string name="wear_no_conversations">No conversations yet</string>
+
+  <!-- ConversationScreen -->
+  <!-- Fallback header shown while the conversation title hasn't synced from the phone yet. -->
+  <string name="wear_conversation_title_fallback">Conversation</string>
+  <string name="wear_reply">Reply</string>
+  <string name="wear_mute">Mute</string>
+  <string name="wear_unmute">Unmute</string>
+
+  <!-- One-tap preset replies offered alongside the free-form keyboard/voice reply chip. -->
+  <string-array name="wear_preset_replies">
+    <item>👍</item>
+    <item>OK</item>
+    <item>On my way</item>
+    <item>Talk later</item>
+  </string-array>
+</resources>

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
@@ -13,6 +14,7 @@ import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.ListHeader
 import androidx.wear.compose.material.Text
 import org.signal.core.util.wear.ConversationDto
+import org.thoughtcrime.securesms.wear.R
 
 /**
  * Milestone 2 start destination: the synced conversation list, newest first. Requests a fresh
@@ -32,10 +34,10 @@ fun ConversationListScreen(
   val sorted = conversations.sortedByDescending { it.timestamp }
 
   ScalingLazyColumn(modifier = modifier) {
-    item { ListHeader { Text("Chats") } }
+    item { ListHeader { Text(stringResource(R.string.wear_chats_title)) } }
 
     if (sorted.isEmpty()) {
-      item { Text("No conversations yet") }
+      item { Text(stringResource(R.string.wear_no_conversations)) }
     }
 
     items(sorted, key = { it.threadId }) { conversation ->
