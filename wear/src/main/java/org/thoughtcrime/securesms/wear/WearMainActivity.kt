@@ -1,12 +1,19 @@
 package org.thoughtcrime.securesms.wear
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.ViewModel
@@ -21,6 +28,7 @@ import org.signal.core.util.wear.WearBridgeProtocol
 import org.thoughtcrime.securesms.wear.bridge.WearDataClient
 import org.thoughtcrime.securesms.wear.data.WearConversationRepository
 import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
+import org.thoughtcrime.securesms.wear.notify.WearNotifier
 import org.thoughtcrime.securesms.wear.ui.ConversationListScreen
 import org.thoughtcrime.securesms.wear.ui.ConversationScreen
 import org.thoughtcrime.securesms.wear.ui.SignalWearTheme
@@ -60,18 +68,44 @@ class WearMainActivity : ComponentActivity() {
     }
   }
 
+  /**
+   * WEAR-005: the thread id (if any) a tapped [WearNotifier] notification deep-linked in with, read
+   * from [WearNotifier.EXTRA_THREAD_ID]. Set from [onCreate]'s initial intent and re-set from
+   * [onNewIntent] (the `FLAG_ACTIVITY_CLEAR_TOP` re-delivery path when the Activity is already
+   * running); the composable's `LaunchedEffect` below consumes it by navigating and clearing it back
+   * to null, so a later recomposition (e.g. rotating a bezel) doesn't re-navigate.
+   */
+  private val pendingDeepLinkThreadId = mutableStateOf<Long?>(null)
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+
+    if (Build.VERSION.SDK_INT >= 33 &&
+      checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+      requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
+    }
 
     // Advertise the bridge capability at runtime so the phone can discover this watch (push / wipe /
     // avatars). The static android_wear_capabilities resource is not reliably picked up by GmsCore.
     Wearable.getCapabilityClient(applicationContext).addLocalCapability(WearBridgeProtocol.CAPABILITY)
+
+    pendingDeepLinkThreadId.value = threadIdFromIntent(intent)
 
     setContent {
       SignalWearTheme {
         val navController = rememberSwipeDismissableNavController()
         val conversations by viewModel.conversations.collectAsState()
         val messages by viewModel.messages.collectAsState()
+        val deepLinkThreadId by pendingDeepLinkThreadId
+
+        LaunchedEffect(deepLinkThreadId) {
+          val threadId = deepLinkThreadId
+          if (threadId != null) {
+            navController.navigate("conversation/$threadId")
+            pendingDeepLinkThreadId.value = null
+          }
+        }
 
         SwipeDismissableNavHost(
           navController = navController,
@@ -114,5 +148,22 @@ class WearMainActivity : ComponentActivity() {
         }
       }
     }
+  }
+
+  /**
+   * Re-delivery path for a tapped [WearNotifier] notification while the Activity is already running
+   * ([Intent.FLAG_ACTIVITY_CLEAR_TOP]) — [onCreate] only sees the launching intent, so this is what
+   * lets a second (or third) tapped notification navigate again without recreating the Activity.
+   */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    pendingDeepLinkThreadId.value = threadIdFromIntent(intent)
+  }
+
+  /** [WearNotifier.EXTRA_THREAD_ID] from [intent], or null when absent (a plain launcher tap). */
+  private fun threadIdFromIntent(intent: Intent): Long? {
+    val threadId = intent.getLongExtra(WearNotifier.EXTRA_THREAD_ID, -1L)
+    return threadId.takeIf { it >= 0L }
   }
 }

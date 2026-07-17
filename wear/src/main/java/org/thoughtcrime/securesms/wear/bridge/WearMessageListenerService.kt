@@ -27,12 +27,14 @@ import org.signal.core.util.logging.Log
 import org.signal.core.util.wear.ConversationDto
 import org.signal.core.util.wear.ConversationsPayload
 import org.signal.core.util.wear.MessagesPayload
+import org.signal.core.util.wear.NotifyDto
 import org.signal.core.util.wear.WearBridgeProtocol
 import org.thoughtcrime.securesms.wear.data.WearAvatarCache
 import org.thoughtcrime.securesms.wear.data.WearMessagesSink
 import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
 import org.thoughtcrime.securesms.wear.data.db.WearConversationDao
 import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
+import org.thoughtcrime.securesms.wear.notify.WearNotifier
 
 /**
  * Watch-side receiver. Milestone 1 (WEAR-001) only handled the pong reply from the phone and
@@ -97,7 +99,8 @@ class WearMessageListenerService : WearableListenerService() {
           path = event.path,
           data = event.data,
           dao = dao,
-          onMessages = { WearMessagesSink.state.value = it }
+          onMessages = { WearMessagesSink.state.value = it },
+          notify = { WearNotifier.notify(applicationContext, it) }
         )
       } catch (e: CancellationException) {
         throw e
@@ -304,6 +307,10 @@ class WearMessageListenerService : WearableListenerService() {
      *   the unpair case. [WearAvatarCache] is cleared alongside it (Milestone 4 Task D (WEAR-004)
      *   fix) — otherwise a cached contact face photo keeps rendering after the wipe, until the
      *   process restarts.
+     * - [WearBridgeProtocol.PATH_NOTIFY] (WEAR-005): decodes a [NotifyDto] and forwards it to
+     *   [notify], which the real [onMessageReceived] call site wires to
+     *   [WearNotifier.notify]. Fired by the phone only for threads it itself just alerted on, so
+     *   mute / notification-privacy / DND / notifications-off are all honoured for free.
      *
      * Any other path is ignored (the M1 pong is handled separately in [onMessageReceived], before
      * this is called).
@@ -312,7 +319,8 @@ class WearMessageListenerService : WearableListenerService() {
       path: String,
       data: ByteArray,
       dao: WearConversationDao,
-      onMessages: (MessagesPayload) -> Unit
+      onMessages: (MessagesPayload) -> Unit,
+      notify: (NotifyDto) -> Unit = {}
     ) {
       when (path) {
         WearBridgeProtocol.PATH_CONVERSATIONS -> {
@@ -327,6 +335,10 @@ class WearMessageListenerService : WearableListenerService() {
         WearBridgeProtocol.PATH_WIPE -> {
           dao.clear()
           WearAvatarCache.clear()
+        }
+
+        WearBridgeProtocol.PATH_NOTIFY -> {
+          notify(WearBridgeProtocol.decode<NotifyDto>(data))
         }
       }
     }
