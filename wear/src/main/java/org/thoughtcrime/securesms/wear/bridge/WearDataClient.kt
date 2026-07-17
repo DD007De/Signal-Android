@@ -91,15 +91,27 @@ class WearDataClient(private val context: Context) {
    */
   private suspend fun send(path: String, data: ByteArray): Boolean {
     return try {
-      val capabilityInfo = Wearable.getCapabilityClient(context)
+      val capabilityNodes = Wearable.getCapabilityClient(context)
         .getCapability(WearBridgeProtocol.CAPABILITY, CapabilityClient.FILTER_REACHABLE)
         .await()
+        .nodes
+        .map { it.id }
 
-      val nodeId = capabilityInfo.nodes.firstOrNull()?.id ?: return false
+      // Capability announcements don't always propagate phone <-> watch on every GmsCore build
+      // (notably some Samsung watches), so fall back to all connected nodes. Our message paths are
+      // bridge-specific, so a node without our companion app simply ignores them.
+      val targets = capabilityNodes.ifEmpty {
+        Wearable.getNodeClient(context).connectedNodes.await().map { it.id }
+      }
 
-      Wearable.getMessageClient(context)
-        .sendMessage(nodeId, path, data)
-        .await()
+      if (targets.isEmpty()) {
+        Log.w(TAG, "$path: no reachable node")
+        return false
+      }
+
+      targets.forEach { nodeId ->
+        Wearable.getMessageClient(context).sendMessage(nodeId, path, data).await()
+      }
 
       true
     } catch (e: CancellationException) {

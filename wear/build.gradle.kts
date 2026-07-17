@@ -8,7 +8,10 @@ android {
   namespace = "org.thoughtcrime.securesms.wear"
 
   defaultConfig {
-    applicationId = "org.thoughtcrime.securesms.wear"
+    // The Wearable Data Layer only delivers messages between apps that share the same applicationId
+    // (or via a capability, whose propagation is unreliable on some watches). Matching the phone
+    // app's id makes the watch and phone the "same app" on two nodes, so messages route directly.
+    applicationId = "org.thoughtcrime.securesms"
     minSdk = 30
   }
 }

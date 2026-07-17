@@ -230,6 +230,7 @@ public class ApplicationContext extends Application implements AppForegroundObse
               .addNonBlocking(this::ensureProfileUploaded)
               .addNonBlocking(() -> AppDependencies.getExpireStoriesManager().scheduleIfNecessary())
               .addNonBlocking(BackupRepository::maybeFixAnyDanglingUploadProgress)
+              .addNonBlocking(() -> org.thoughtcrime.securesms.wear.WearBridgeCapability.register(this))
               .addPostRender(() -> AppDependencies.getDeletedCallEventManager().scheduleIfNecessary())
               .addPostRender(() -> RateLimitUtil.retryAllRateLimitedMessages(this))
               .addPostRender(this::initializeExpiringMessageManager)
