@@ -106,11 +106,47 @@ class WearConversationViewModelTest {
     assertEquals(payload, viewModel.messages.value)
   }
 
+  @Test
+  fun `markRead calls through to the repository`() = runTest(dispatcher) {
+    val fake = FakeWearConversationDataSource()
+    val viewModel = WearConversationViewModel(fake)
+
+    viewModel.markRead(threadId = 3L)
+    dispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(3L), fake.markReadThreadIds)
+  }
+
+  @Test
+  fun `mute calls through to the repository`() = runTest(dispatcher) {
+    val fake = FakeWearConversationDataSource()
+    val viewModel = WearConversationViewModel(fake)
+
+    viewModel.mute(threadId = 5L)
+    dispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(5L), fake.mutedThreadIds)
+  }
+
+  @Test
+  fun `unmute calls through to the repository`() = runTest(dispatcher) {
+    val fake = FakeWearConversationDataSource()
+    val viewModel = WearConversationViewModel(fake)
+
+    viewModel.unmute(threadId = 6L)
+    dispatcher.scheduler.advanceUntilIdle()
+
+    assertEquals(listOf(6L), fake.unmutedThreadIds)
+  }
+
   private class FakeWearConversationDataSource : WearConversationDataSource {
     val conversationsFlow = MutableStateFlow<List<ConversationDto>>(emptyList())
     val messagesFlow = MutableStateFlow<MessagesPayload?>(null)
     val openedThreadIds = mutableListOf<Long>()
     val sentReplies = mutableListOf<Pair<Long, String>>()
+    val markReadThreadIds = mutableListOf<Long>()
+    val mutedThreadIds = mutableListOf<Long>()
+    val unmutedThreadIds = mutableListOf<Long>()
     var refreshCalls = 0
 
     override fun conversations(): Flow<List<ConversationDto>> = conversationsFlow
@@ -130,6 +166,18 @@ class WearConversationViewModelTest {
     override suspend fun reply(threadId: Long, body: String): Boolean {
       sentReplies += threadId to body
       return true
+    }
+
+    override suspend fun markRead(threadId: Long) {
+      markReadThreadIds += threadId
+    }
+
+    override suspend fun mute(threadId: Long) {
+      mutedThreadIds += threadId
+    }
+
+    override suspend fun unmute(threadId: Long) {
+      unmutedThreadIds += threadId
     }
   }
 }

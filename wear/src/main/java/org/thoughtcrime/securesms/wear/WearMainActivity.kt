@@ -90,6 +90,9 @@ class WearMainActivity : ComponentActivity() {
                 payload = messages,
                 onOpen = viewModel::open,
                 onReply = viewModel::reply,
+                onMarkRead = viewModel::markRead,
+                onMute = viewModel::mute,
+                onUnmute = viewModel::unmute,
                 modifier = Modifier.fillMaxSize()
               )
             }

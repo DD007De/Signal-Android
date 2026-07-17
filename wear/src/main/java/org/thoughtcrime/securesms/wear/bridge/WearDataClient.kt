@@ -6,6 +6,7 @@ import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import org.signal.core.util.logging.Log
+import org.signal.core.util.wear.MuteRequest
 import org.signal.core.util.wear.ReplyRequest
 import org.signal.core.util.wear.WearBridgeProtocol
 
@@ -62,9 +63,28 @@ class WearDataClient(private val context: Context) {
   }
 
   /**
+   * Tells the paired phone to mark [threadId] read.
+   *
+   * @return true if a target node was found and the request was handed to the Data Layer; false
+   *   otherwise (see [ping]).
+   */
+  suspend fun markRead(threadId: Long): Boolean = send(WearBridgeProtocol.PATH_MARK_READ, threadId.toString().encodeToByteArray())
+
+  /**
+   * Tells the paired phone to mute or unmute [threadId] until [muteUntil] (epoch millis; `0L` to
+   * unmute).
+   *
+   * @return true if a target node was found and the request was handed to the Data Layer; false
+   *   otherwise (see [ping]).
+   */
+  suspend fun mute(threadId: Long, muteUntil: Long): Boolean {
+    return send(WearBridgeProtocol.PATH_MUTE, WearBridgeProtocol.encode(MuteRequest(threadId = threadId, muteUntil = muteUntil)))
+  }
+
+  /**
    * Finds the first reachable node advertising [WearBridgeProtocol.CAPABILITY] and sends [data] on
    * [path] to it. Shared, crash-safe send path for [ping], [requestConversations],
-   * [requestMessages], and [sendReply].
+   * [requestMessages], [sendReply], [markRead], and [mute].
    *
    * @return true if a target node was found and the message was handed to the Data Layer; false if
    *   no node is reachable or the Data Layer call fails (e.g. GmsCore unavailable).

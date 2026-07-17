@@ -27,9 +27,15 @@ private val PRESET_REPLIES = listOf("👍", "OK", "On my way", "Call you later")
  * A single thread's recent messages plus reply affordances: a voice-input chip (launches the
  * platform's remote-input activity via [RemoteInputIntentHelper]) and a short list of preset
  * one-tap replies. Requests [threadId]'s messages from the paired phone via [onOpen] on first
- * composition (and whenever [threadId] changes, e.g. navigating directly between two threads);
- * the actual message content comes from the caller's [payload] (backed by
- * [WearConversationViewModel.messages]) so this screen stays a plain, stateless Composable.
+ * composition (and whenever [threadId] changes, e.g. navigating directly between two threads),
+ * and also tells the paired phone to mark [threadId] read via [onMarkRead] at the same time —
+ * opening a thread on the watch implies the user has read it. The actual message content comes
+ * from the caller's [payload] (backed by [WearConversationViewModel.messages]) so this screen
+ * stays a plain, stateless Composable.
+ *
+ * [onMute]/[onUnmute] surface both mute and unmute actions rather than a single toggle: the watch
+ * has no local record of a thread's mute state (the [org.signal.core.util.wear.ConversationDto]
+ * wire DTO doesn't carry one in this increment), so there's nothing to toggle against.
  */
 @Composable
 fun ConversationScreen(
@@ -37,9 +43,15 @@ fun ConversationScreen(
   payload: MessagesPayload?,
   onOpen: (Long) -> Unit,
   onReply: (Long, String) -> Unit,
+  onMarkRead: (Long) -> Unit,
+  onMute: (Long) -> Unit,
+  onUnmute: (Long) -> Unit,
   modifier: Modifier = Modifier
 ) {
-  LaunchedEffect(threadId) { onOpen(threadId) }
+  LaunchedEffect(threadId) {
+    onOpen(threadId)
+    onMarkRead(threadId)
+  }
 
   val voiceReplyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
     if (result.resultCode == Activity.RESULT_OK) {
@@ -77,6 +89,24 @@ fun ConversationScreen(
       Chip(
         onClick = { onReply(threadId, preset) },
         label = { Text(preset) },
+        colors = ChipDefaults.secondaryChipColors(),
+        modifier = Modifier.padding(vertical = 2.dp)
+      )
+    }
+
+    item {
+      Chip(
+        onClick = { onMute(threadId) },
+        label = { Text("Mute") },
+        colors = ChipDefaults.secondaryChipColors(),
+        modifier = Modifier.padding(vertical = 2.dp)
+      )
+    }
+
+    item {
+      Chip(
+        onClick = { onUnmute(threadId) },
+        label = { Text("Unmute") },
         colors = ChipDefaults.secondaryChipColors(),
         modifier = Modifier.padding(vertical = 2.dp)
       )

@@ -46,4 +46,19 @@ class WearConversationViewModel(private val repository: WearConversationDataSour
   fun reply(threadId: Long, body: String) {
     viewModelScope.launch { repository.reply(threadId, body) }
   }
+
+  /** Marks [threadId] read; see [WearConversationDataSource.markRead]. */
+  fun markRead(threadId: Long) {
+    viewModelScope.launch { repository.markRead(threadId) }
+  }
+
+  /** Mutes [threadId] indefinitely; see [WearConversationDataSource.mute]. */
+  fun mute(threadId: Long) {
+    viewModelScope.launch { repository.mute(threadId) }
+  }
+
+  /** Unmutes [threadId]; see [WearConversationDataSource.unmute]. */
+  fun unmute(threadId: Long) {
+    viewModelScope.launch { repository.unmute(threadId) }
+  }
 }
