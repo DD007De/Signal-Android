@@ -9,6 +9,7 @@ import org.thoughtcrime.securesms.BuildConfig
 import org.thoughtcrime.securesms.database.MessageTable
 import org.thoughtcrime.securesms.database.SignalDatabase
 import org.thoughtcrime.securesms.keyvalue.SignalStore
+import org.thoughtcrime.securesms.util.NameUtil
 
 /**
  * Phone-side read path for the Wear bridge (Milestone 2).
@@ -82,12 +83,18 @@ class WearBridgeRepository(private val context: Context) {
       val reader = SignalDatabase.threads.readerFor(cursor)
       var record = reader.getNext()
       while (record != null) {
+        // Derived from the already privacy-guarded title, not the raw recipient: when contact
+        // privacy is hidden, title is GENERIC_TITLE, so initials/color are too, and a hidden
+        // contact can't leak its identity to the watch via avatar color or initials either.
+        val displayTitle = if (privacy.isDisplayContact) record.recipient.getDisplayName(context) else GENERIC_TITLE
         conversations += ConversationDto(
           threadId = record.threadId,
-          title = if (privacy.isDisplayContact) record.recipient.getDisplayName(context) else GENERIC_TITLE,
+          title = displayTitle,
           lastBody = if (privacy.isDisplayMessage) record.body else "",
           timestamp = record.date,
-          unread = record.unreadCount
+          unread = record.unreadCount,
+          avatarColor = if (privacy.isDisplayContact) record.recipient.avatarColor.colorInt() else NEUTRAL_AVATAR_COLOR,
+          initials = initialsFor(displayTitle)
         )
         record = reader.getNext()
       }
@@ -147,9 +154,28 @@ class WearBridgeRepository(private val context: Context) {
     }
   }
 
+  /**
+   * Up to two initials for [title], enough for the watch to draw Signal's colored-circle fallback
+   * avatar (see [org.thoughtcrime.securesms.avatar.fallback.FallbackAvatar]'s phone-side use of the
+   * same [NameUtil.getAbbreviation]). Falls back to the title's first character, uppercased, if
+   * [NameUtil.getAbbreviation] can't find anything abbreviation-worthy (e.g. an all-punctuation
+   * title) -- and to an empty string only if the title itself has nothing usable at all.
+   */
+  private fun initialsFor(title: String): String {
+    val abbreviation = NameUtil.getAbbreviation(title)
+    if (!abbreviation.isNullOrBlank()) {
+      return abbreviation
+    }
+    return title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: ""
+  }
+
   companion object {
     private const val DEFAULT_LIMIT = 25
     private const val GENERIC_TITLE = "Signal"
     private const val SELF_AUTHOR = "You"
+
+    // Milestone 4 Task A: neutral gray shown for a thread's avatar when contact privacy is hidden,
+    // so the color itself doesn't leak identity the way a per-recipient AvatarColor would.
+    private const val NEUTRAL_AVATAR_COLOR = 0xFF6E6E6E.toInt()
   }
 }

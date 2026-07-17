@@ -46,7 +46,12 @@ data class ConversationDto(
   val title: String,
   val lastBody: String,
   val timestamp: Long,
-  val unread: Int
+  val unread: Int,
+  // Milestone 4 Task A: enough to draw Signal's colored-circle-with-initials fallback avatar on the
+  // watch without sending photo bytes (MessageClient has a ~100KB message limit). Defaulted so
+  // older senders/receivers that don't know about these fields still round-trip cleanly.
+  val avatarColor: Int = 0,
+  val initials: String = ""
 )
 
 @Serializable
