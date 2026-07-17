@@ -64,7 +64,9 @@ class WearConversationRepository(
     title = title,
     lastBody = lastBody,
     timestamp = timestamp,
-    unread = unread
+    unread = unread,
+    avatarColor = avatarColor,
+    initials = initials
   )
 }
 

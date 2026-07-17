@@ -94,6 +94,29 @@ class WearMessageListenerServiceTest {
   }
 
   @Test
+  fun `PATH_CONVERSATIONS persists avatarColor and initials onto the cached entity`() = runTest {
+    val payload = ConversationsPayload(
+      conversations = listOf(
+        ConversationDto(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 1, avatarColor = -0xffff01, initials = "A"),
+        ConversationDto(threadId = 2L, title = "Bob", lastBody = "hey", timestamp = 200L, unread = 0, avatarColor = 0, initials = "")
+      )
+    )
+
+    WearMessageListenerService.handleIncoming(
+      path = WearBridgeProtocol.PATH_CONVERSATIONS,
+      data = WearBridgeProtocol.encode(payload),
+      dao = dao,
+      onMessages = { throw AssertionError("PATH_CONVERSATIONS should not invoke onMessages") }
+    )
+
+    val rows = dao.observeAll().first().associateBy { it.threadId }
+    assertEquals(-0xffff01, rows.getValue(1L).avatarColor)
+    assertEquals("A", rows.getValue(1L).initials)
+    assertEquals(0, rows.getValue(2L).avatarColor)
+    assertEquals("", rows.getValue(2L).initials)
+  }
+
+  @Test
   fun `PATH_MESSAGES forwards the decoded payload to onMessages without touching the DAO`() = runTest {
     dao.upsertAll(listOf(WearConversationEntity(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 0)))
 
