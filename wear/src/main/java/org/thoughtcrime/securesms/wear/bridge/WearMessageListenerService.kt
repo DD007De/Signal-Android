@@ -1,9 +1,17 @@
 package org.thoughtcrime.securesms.wear.bridge
 
+import android.content.Context
+import android.graphics.BitmapFactory
 import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.android.gms.wearable.Asset
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.CapabilityInfo
+import com.google.android.gms.wearable.DataEvent
+import com.google.android.gms.wearable.DataEventBuffer
+import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
@@ -20,6 +28,7 @@ import org.signal.core.util.wear.ConversationDto
 import org.signal.core.util.wear.ConversationsPayload
 import org.signal.core.util.wear.MessagesPayload
 import org.signal.core.util.wear.WearBridgeProtocol
+import org.thoughtcrime.securesms.wear.data.WearAvatarCache
 import org.thoughtcrime.securesms.wear.data.WearMessagesSink
 import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
 import org.thoughtcrime.securesms.wear.data.db.WearConversationDao
@@ -52,7 +61,14 @@ import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
  * of scope for this milestone and needs on-device verification of the resulting lifecycle
  * behavior. It's an acceptable gap because the sync is self-healing: the next `refresh()` /
  * [WearBridgeProtocol.PATH_REQUEST_CONVERSATIONS] round-trip re-syncs the full, current state
- * regardless of what was missed.
+ * regardless of what was missed. [onDataChanged] (Milestone 4 Task D) has the same accepted gap,
+ * for the same reason: a photo dropped mid-flight is re-published the next time the phone re-syncs
+ * that thread's avatar.
+ *
+ * Milestone 4 Task D (WEAR-004) adds [onDataChanged]: real contact photos, sent by the phone as
+ * Data Layer Assets rather than [MessageEvent]s (which are capped at ~100KB), are decoded and
+ * cached in [WearAvatarCache] for [org.thoughtcrime.securesms.wear.ui.ConversationAvatar] to render,
+ * falling back to the existing colored-initials avatar when nothing is cached for a thread.
  */
 class WearMessageListenerService : WearableListenerService() {
 
@@ -144,6 +160,116 @@ class WearMessageListenerService : WearableListenerService() {
     }
   }
 
+  /**
+   * Milestone 4 Task D (WEAR-004): handles [WearBridgeProtocol.PATH_AVATAR] DataItem puts/deletes
+   * for real contact photos, registered via the `DATA_CHANGED` intent-filter (pathPrefix
+   * `/wear-bridge/avatar`) alongside `MESSAGE_RECEIVED`/`CAPABILITY_CHANGED` above.
+   *
+   * [DataEventBuffer] is a GmsCore-owned view over native memory that's only valid for the
+   * synchronous duration of this call — it's recycled the moment [onDataChanged] returns, the same
+   * lifecycle caveat the class KDoc already calls out for [onMessageReceived]/[MessageEvent]. The
+   * actual work here (fetching the asset's bytes via [com.google.android.gms.wearable.DataClient.getFdForAsset]
+   * and decoding a bitmap) is I/O that belongs on [scope], so nothing from [dataEvents] is touched
+   * from inside the launched coroutine: [dataEvents] is walked synchronously, right here, into
+   * [pending] — a plain list of [PendingAvatarEvent] holding just a thread id and (for a changed
+   * item) the [Asset] reference itself. An [Asset] is a small Parcelable handle, not a view over the
+   * buffer's backing memory, so retaining it past this method returning is safe; the [DataEvent]/
+   * [com.google.android.gms.wearable.DataItem] it came from is not retained.
+   *
+   * - [DataEvent.TYPE_CHANGED]: decodes the `"avatar"` [Asset] and caches the resulting
+   *   [ImageBitmap] in [WearAvatarCache] under the thread id parsed from the DataItem's path (see
+   *   [threadIdFromAvatarPath]). A decode failure (asset fetch error, corrupt bytes) removes any
+   *   stale cache entry instead of leaving a possibly-wrong photo cached.
+   * - [DataEvent.TYPE_DELETED]: removes the thread id from [WearAvatarCache] — the phone deletes
+   *   the DataItem when a contact has no real photo, or notification-content privacy hides it.
+   *
+   * Not unit tested: needs a real [DataEventBuffer], [DataMapItem], and
+   * [com.google.android.gms.wearable.DataClient.getFdForAsset], all of which require GmsCore.
+   * Device-verified instead, consistent with this class's other GmsCore-touching gaps
+   * ([onCapabilityChanged]'s coroutine body, [WearDataClient]'s send methods). [threadIdFromAvatarPath]
+   * itself, the one pure piece, is unit tested directly.
+   */
+  override fun onDataChanged(dataEvents: DataEventBuffer) {
+    val pending = dataEvents.mapNotNull { toPendingAvatarEvent(it) }
+    if (pending.isEmpty()) {
+      return
+    }
+
+    val context = applicationContext
+    scope.launch {
+      try {
+        pending.forEach { applyAvatarEvent(context, it) }
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to process avatar data event(s)", e)
+      }
+    }
+  }
+
+  /**
+   * Synchronous extraction step for [onDataChanged]: pulls only the buffer-independent bits an
+   * incoming [DataEvent] needs (thread id, and for a changed item, the [Asset] reference) out of it
+   * before the buffer is recycled. Returns null for events outside [WearBridgeProtocol.PATH_AVATAR],
+   * a malformed path (see [threadIdFromAvatarPath]), an event type other than
+   * [DataEvent.TYPE_CHANGED]/[DataEvent.TYPE_DELETED], or a changed item with no `"avatar"` asset.
+   */
+  private fun toPendingAvatarEvent(event: DataEvent): PendingAvatarEvent? {
+    val path = event.dataItem.uri.path ?: return null
+    val threadId = threadIdFromAvatarPath(path) ?: return null
+
+    return when (event.type) {
+      DataEvent.TYPE_DELETED -> PendingAvatarEvent(threadId, asset = null)
+      DataEvent.TYPE_CHANGED -> {
+        val asset = DataMapItem.fromDataItem(event.dataItem).dataMap.getAsset(ASSET_KEY_AVATAR) ?: return null
+        PendingAvatarEvent(threadId, asset = asset)
+      }
+      else -> null
+    }
+  }
+
+  /**
+   * The async half of [onDataChanged], run on [scope] for each [PendingAvatarEvent] extracted from
+   * a [DataEventBuffer] — touches only [context] and [WearAvatarCache], never the original
+   * [DataEvent]/[DataEventBuffer] the event came from. A null [PendingAvatarEvent.asset] means either
+   * a [DataEvent.TYPE_DELETED] event, so the cache entry is simply removed.
+   */
+  private suspend fun applyAvatarEvent(context: Context, event: PendingAvatarEvent) {
+    val asset = event.asset
+    if (asset == null) {
+      WearAvatarCache.remove(event.threadId)
+      return
+    }
+
+    val bitmap = decodeAvatarAsset(context, asset)
+    if (bitmap != null) {
+      WearAvatarCache.put(event.threadId, bitmap)
+    } else {
+      WearAvatarCache.remove(event.threadId)
+    }
+  }
+
+  /**
+   * Fetches [asset]'s bytes via [com.google.android.gms.wearable.DataClient.getFdForAsset] and
+   * decodes them into an [ImageBitmap]. Returns null (rather than throwing) on any failure — a
+   * missing/corrupt asset falls back to the colored-initials avatar via [applyAvatarEvent] rather
+   * than crashing the listener service.
+   */
+  private suspend fun decodeAvatarAsset(context: Context, asset: Asset): ImageBitmap? {
+    return try {
+      val response = Wearable.getDataClient(context).getFdForAsset(asset).await()
+      response.inputStream.use { input -> BitmapFactory.decodeStream(input)?.asImageBitmap() }
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to decode avatar asset", e)
+      null
+    }
+  }
+
+  /** Buffer-independent snapshot of a [WearBridgeProtocol.PATH_AVATAR] [DataEvent]; see [toPendingAvatarEvent]. */
+  private data class PendingAvatarEvent(val threadId: Long, val asset: Asset?)
+
   companion object {
     private val TAG = Log.tag(WearMessageListenerService::class.java)
 
@@ -208,6 +334,30 @@ class WearMessageListenerService : WearableListenerService() {
     @VisibleForTesting
     internal fun shouldWipeForCapabilityChange(capabilityName: String, reachableNodeCount: Int): Boolean {
       return capabilityName == WearBridgeProtocol.CAPABILITY && reachableNodeCount == 0
+    }
+
+    /**
+     * The [com.google.android.gms.wearable.DataMap] key the phone-side `WearAvatarPublisher`
+     * (`org.thoughtcrime.securesms.wear.WearAvatarPublisher`, `:app`) puts the photo [Asset] under.
+     * Must match that object's `KEY_AVATAR` exactly.
+     */
+    private const val ASSET_KEY_AVATAR = "avatar"
+
+    /**
+     * Parses the thread id out of a [DataEvent]'s URI path for [WearBridgeProtocol.PATH_AVATAR]
+     * items — the inverse of the phone-side `WearAvatarPublisher.avatarDataItemPath` (e.g.
+     * `"/wear-bridge/avatar/42"` -> `42L`). Pure and unit tested directly; the one part of
+     * [onDataChanged]'s handling that doesn't need GmsCore. Returns null for anything that isn't
+     * exactly [WearBridgeProtocol.PATH_AVATAR] plus a slash and a valid [Long] — no path at all, a
+     * different path, a missing/blank/non-numeric id, or trailing garbage after the id.
+     */
+    @VisibleForTesting
+    internal fun threadIdFromAvatarPath(path: String): Long? {
+      val prefix = "${WearBridgeProtocol.PATH_AVATAR}/"
+      if (!path.startsWith(prefix)) {
+        return null
+      }
+      return path.substring(prefix.length).toLongOrNull()
     }
 
     private fun ConversationDto.toEntity(): WearConversationEntity = WearConversationEntity(

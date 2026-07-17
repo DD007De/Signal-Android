@@ -43,7 +43,7 @@ fun ConversationListScreen(
         onClick = { onOpen(conversation.threadId) },
         label = { Text(text = conversation.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         secondaryLabel = { Text(text = conversation.lastBody, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        icon = { ConversationAvatar(color = conversation.avatarColor, initials = conversation.initials) },
+        icon = { ConversationAvatar(threadId = conversation.threadId, color = conversation.avatarColor, initials = conversation.initials) },
         colors = ChipDefaults.secondaryChipColors(),
         modifier = Modifier.padding(vertical = 2.dp)
       )

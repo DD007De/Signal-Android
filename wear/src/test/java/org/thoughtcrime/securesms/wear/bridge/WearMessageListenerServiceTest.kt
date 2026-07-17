@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -164,5 +165,33 @@ class WearMessageListenerServiceTest {
     assertFalse(WearMessageListenerService.shouldWipeForCapabilityChange(WearBridgeProtocol.CAPABILITY, 1))
     assertFalse(WearMessageListenerService.shouldWipeForCapabilityChange("some_other_capability", 0))
     assertFalse(WearMessageListenerService.shouldWipeForCapabilityChange("some_other_capability", 1))
+  }
+
+  @Test
+  fun `threadIdFromAvatarPath parses the thread id from a well-formed avatar path`() {
+    assertEquals(42L, WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/42"))
+    assertEquals(0L, WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/0"))
+    assertEquals(Long.MAX_VALUE, WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/${Long.MAX_VALUE}"))
+  }
+
+  @Test
+  fun `threadIdFromAvatarPath returns null for paths outside PATH_AVATAR`() {
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath(WearBridgeProtocol.PATH_CONVERSATIONS + "/42"))
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("/some/unrelated/path/42"))
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath(""))
+  }
+
+  @Test
+  fun `threadIdFromAvatarPath returns null for a malformed or missing thread id`() {
+    // No trailing id at all (with or without the trailing slash).
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath(WearBridgeProtocol.PATH_AVATAR))
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/"))
+    // Non-numeric id.
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/abc"))
+    // Trailing garbage after an otherwise-valid id.
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/42/extra"))
+    // A path that merely has PATH_AVATAR as a prefix without the separating slash (e.g. a sibling
+    // path that happens to share the same characters) must not be mistaken for an avatar path.
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}extra/42"))
   }
 }

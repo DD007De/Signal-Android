@@ -51,6 +51,19 @@
             android:scheme="wear"
             android:path="/signal_wear_bridge" />
       </intent-filter>
+      <!--
+        Milestone 4 Task D (WEAR-004): notifies WearMessageListenerService.onDataChanged whenever a
+        real contact photo DataItem is put/deleted at WearBridgeProtocol.PATH_AVATAR/$threadId
+        (published by WearAvatarPublisher on the phone). The pathPrefix below must match
+        WearBridgeProtocol.PATH_AVATAR.
+      -->
+      <intent-filter>
+        <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+        <data
+            android:scheme="wear"
+            android:host="*"
+            android:pathPrefix="/wear-bridge/avatar" />
+      </intent-filter>
     </service>
   </application>
 </manifest>
