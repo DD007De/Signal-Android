@@ -102,7 +102,10 @@ class WearMainActivity : ComponentActivity() {
         LaunchedEffect(deepLinkThreadId) {
           val threadId = deepLinkThreadId
           if (threadId != null) {
-            navController.navigate("conversation/$threadId")
+            navController.navigate("conversation/$threadId") {
+              launchSingleTop = true
+              popUpTo(ROUTE_CONVERSATIONS) { inclusive = false }
+            }
             pendingDeepLinkThreadId.value = null
           }
         }
