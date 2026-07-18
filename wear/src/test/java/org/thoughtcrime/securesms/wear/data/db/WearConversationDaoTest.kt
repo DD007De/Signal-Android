@@ -95,6 +95,22 @@ class WearConversationDaoTest {
   }
 
   @Test
+  fun `upsertAll persists avatarColor and initials, and observeAll round-trips them`() = runTest {
+    dao.upsertAll(
+      listOf(
+        WearConversationEntity(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 1, avatarColor = -0xffff01, initials = "A"),
+        WearConversationEntity(threadId = 2L, title = "Bob", lastBody = "hey", timestamp = 200L, unread = 0, avatarColor = 0, initials = "")
+      )
+    )
+
+    val rows = dao.observeAll().first().associateBy { it.threadId }
+    assertEquals(-0xffff01, rows.getValue(1L).avatarColor)
+    assertEquals("A", rows.getValue(1L).initials)
+    assertEquals(0, rows.getValue(2L).avatarColor)
+    assertEquals("", rows.getValue(2L).initials)
+  }
+
+  @Test
   fun `clear empties the table`() = runTest {
     dao.upsertAll(
       listOf(

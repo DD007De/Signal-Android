@@ -1,5 +1,6 @@
 package org.thoughtcrime.securesms.wear.bridge
 
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
@@ -7,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -17,6 +19,7 @@ import org.signal.core.util.wear.ConversationsPayload
 import org.signal.core.util.wear.MessageDto
 import org.signal.core.util.wear.MessagesPayload
 import org.signal.core.util.wear.WearBridgeProtocol
+import org.thoughtcrime.securesms.wear.data.WearAvatarCache
 import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
 import org.thoughtcrime.securesms.wear.data.db.WearConversationDao
 import org.thoughtcrime.securesms.wear.data.db.WearConversationEntity
@@ -53,6 +56,9 @@ class WearMessageListenerServiceTest {
   @After
   fun tearDown() {
     database.close()
+    // WearAvatarCache is a process-wide singleton; reset it so seeded state doesn't leak into
+    // other tests (mirrors WearAvatarCacheTest's own tearDown).
+    WearAvatarCache.clear()
   }
 
   @Test
@@ -91,6 +97,29 @@ class WearMessageListenerServiceTest {
     assertEquals(2L, rows.single().threadId)
     assertEquals("yo", rows.single().lastBody)
     assertEquals(3, rows.single().unread)
+  }
+
+  @Test
+  fun `PATH_CONVERSATIONS persists avatarColor and initials onto the cached entity`() = runTest {
+    val payload = ConversationsPayload(
+      conversations = listOf(
+        ConversationDto(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 1, avatarColor = -0xffff01, initials = "A"),
+        ConversationDto(threadId = 2L, title = "Bob", lastBody = "hey", timestamp = 200L, unread = 0, avatarColor = 0, initials = "")
+      )
+    )
+
+    WearMessageListenerService.handleIncoming(
+      path = WearBridgeProtocol.PATH_CONVERSATIONS,
+      data = WearBridgeProtocol.encode(payload),
+      dao = dao,
+      onMessages = { throw AssertionError("PATH_CONVERSATIONS should not invoke onMessages") }
+    )
+
+    val rows = dao.observeAll().first().associateBy { it.threadId }
+    assertEquals(-0xffff01, rows.getValue(1L).avatarColor)
+    assertEquals("A", rows.getValue(1L).initials)
+    assertEquals(0, rows.getValue(2L).avatarColor)
+    assertEquals("", rows.getValue(2L).initials)
   }
 
   @Test
@@ -136,10 +165,56 @@ class WearMessageListenerServiceTest {
   }
 
   @Test
+  fun `PATH_WIPE also clears WearAvatarCache alongside the DAO`() = runTest {
+    dao.upsertAll(listOf(WearConversationEntity(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 1)))
+    WearAvatarCache.put(1L, ImageBitmap(4, 4))
+    WearAvatarCache.put(2L, ImageBitmap(4, 4))
+    assertEquals(2, WearAvatarCache.map.size)
+
+    WearMessageListenerService.handleIncoming(
+      path = WearBridgeProtocol.PATH_WIPE,
+      data = ByteArray(0),
+      dao = dao,
+      onMessages = { throw AssertionError("PATH_WIPE should not invoke onMessages") }
+    )
+
+    assertEquals(0, dao.observeAll().first().size)
+    assertEquals(emptyMap<Long, ImageBitmap>(), WearAvatarCache.map)
+  }
+
+  @Test
   fun `shouldWipeForCapabilityChange is true only for the bridge capability with zero reachable nodes`() {
     assertTrue(WearMessageListenerService.shouldWipeForCapabilityChange(WearBridgeProtocol.CAPABILITY, 0))
     assertFalse(WearMessageListenerService.shouldWipeForCapabilityChange(WearBridgeProtocol.CAPABILITY, 1))
     assertFalse(WearMessageListenerService.shouldWipeForCapabilityChange("some_other_capability", 0))
     assertFalse(WearMessageListenerService.shouldWipeForCapabilityChange("some_other_capability", 1))
+  }
+
+  @Test
+  fun `threadIdFromAvatarPath parses the thread id from a well-formed avatar path`() {
+    assertEquals(42L, WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/42"))
+    assertEquals(0L, WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/0"))
+    assertEquals(Long.MAX_VALUE, WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/${Long.MAX_VALUE}"))
+  }
+
+  @Test
+  fun `threadIdFromAvatarPath returns null for paths outside PATH_AVATAR`() {
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath(WearBridgeProtocol.PATH_CONVERSATIONS + "/42"))
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("/some/unrelated/path/42"))
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath(""))
+  }
+
+  @Test
+  fun `threadIdFromAvatarPath returns null for a malformed or missing thread id`() {
+    // No trailing id at all (with or without the trailing slash).
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath(WearBridgeProtocol.PATH_AVATAR))
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/"))
+    // Non-numeric id.
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/abc"))
+    // Trailing garbage after an otherwise-valid id.
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}/42/extra"))
+    // A path that merely has PATH_AVATAR as a prefix without the separating slash (e.g. a sibling
+    // path that happens to share the same characters) must not be mistaken for an avatar path.
+    assertNull(WearMessageListenerService.threadIdFromAvatarPath("${WearBridgeProtocol.PATH_AVATAR}extra/42"))
   }
 }

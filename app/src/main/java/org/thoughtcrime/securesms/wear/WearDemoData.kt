@@ -29,27 +29,39 @@ object WearDemoData {
   private const val THREAD_TEAM_SIGNAL = 1_000_002L
   private const val THREAD_MOM = 1_000_003L
 
+  // A handful of distinct, plausible AvatarColor values (see AvatarColor.java's A1x0 constants),
+  // spelled out as raw ARGB ints here so this fixture-only object stays independent of that enum.
+  private const val AVATAR_COLOR_ALEX = 0xFFD8E8F0.toInt() // AvatarColor.A120
+  private const val AVATAR_COLOR_TEAM_SIGNAL = 0xFFEAE0F8.toInt() // AvatarColor.A140
+  private const val AVATAR_COLOR_MOM = 0xFFF6D8EC.toInt() // AvatarColor.A160
+
   private val demoConversations = listOf(
     ConversationDto(
       threadId = THREAD_ALEX,
       title = "Alex",
       lastBody = "See you at 7?",
       timestamp = 1_700_000_600_000L,
-      unread = 1
+      unread = 1,
+      avatarColor = AVATAR_COLOR_ALEX,
+      initials = "A"
     ),
     ConversationDto(
       threadId = THREAD_TEAM_SIGNAL,
       title = "Team Signal",
       lastBody = "Standup moved to 10am tomorrow",
       timestamp = 1_700_000_500_000L,
-      unread = 3
+      unread = 3,
+      avatarColor = AVATAR_COLOR_TEAM_SIGNAL,
+      initials = "TS"
     ),
     ConversationDto(
       threadId = THREAD_MOM,
       title = "Mom",
       lastBody = "Don't forget to call grandma!",
       timestamp = 1_700_000_400_000L,
-      unread = 0
+      unread = 0,
+      avatarColor = AVATAR_COLOR_MOM,
+      initials = "M"
     )
   )
 

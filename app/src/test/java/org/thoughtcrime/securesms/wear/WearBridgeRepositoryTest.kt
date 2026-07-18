@@ -12,6 +12,7 @@ import assertk.assertions.hasSize
 import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
+import assertk.assertions.isNotEqualTo
 import assertk.assertions.isTrue
 import io.mockk.every
 import org.junit.Before
@@ -127,6 +128,34 @@ class WearBridgeRepositoryTest {
   fun returnsNoMessagesForEmptyThread() {
     val payload = repository.recentMessages(threadId)
     assertThat(payload.messages).isEmpty()
+  }
+
+  @Test
+  fun mapsAvatarColorAndInitialsForRecentConversations() {
+    insertIncoming(time = 1000, body = "hello from sender")
+
+    val payload = repository.recentConversations()
+    val conversation = payload.conversations.first { it.threadId == threadId }
+
+    // "Sender Name" -> first grapheme of each of the two name parts (see NameUtil.getAbbreviation).
+    assertThat(conversation.initials).isEqualTo("SN")
+    assertThat(conversation.avatarColor).isNotEqualTo(0)
+  }
+
+  @Test
+  fun usesGenericInitialsAndNeutralColorWhenContactPrivacyIsHidden() {
+    setPrivacy("off")
+
+    insertIncoming(time = 1000, body = "hello from sender")
+
+    val payload = repository.recentConversations()
+    val conversation = payload.conversations.first { it.threadId == threadId }
+
+    // Title is already blanked to the generic "Signal" label; initials/color must be derived from
+    // that generic label too, not from the real recipient, or a hidden contact would leak identity
+    // via color/initials even though the title itself is hidden.
+    assertThat(conversation.initials).isEqualTo("S")
+    assertThat(conversation.avatarColor).isEqualTo(0xFF6E6E6E.toInt())
   }
 
   @Test

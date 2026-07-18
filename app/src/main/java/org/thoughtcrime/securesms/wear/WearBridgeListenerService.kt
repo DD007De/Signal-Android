@@ -64,6 +64,11 @@ class WearBridgeListenerService : WearableListenerService() {
      * [dispatchReply] is a seam over the [PATH_SEND_REPLY][WearBridgeProtocol.PATH_SEND_REPLY]
      * branch's `sendBroadcast` call, defaulting to the real thing so tests can capture the
      * [RemoteReplyReceiver] [Intent] instead of dispatching a real broadcast.
+     *
+     * [publishAvatars] is the same kind of seam over the
+     * [PATH_REQUEST_CONVERSATIONS][WearBridgeProtocol.PATH_REQUEST_CONVERSATIONS] branch's
+     * [WearAvatarPublisher.publishAvatars] call — it defaults to the real (GmsCore-touching)
+     * publisher, so tests that need a hermetic run can inject a no-op or capturing fake instead.
      */
     fun handleMessage(
       context: Context,
@@ -71,7 +76,8 @@ class WearBridgeListenerService : WearableListenerService() {
       data: ByteArray,
       sourceNodeId: String,
       responder: WearResponder,
-      dispatchReply: (Intent) -> Unit = { context.sendBroadcast(it) }
+      dispatchReply: (Intent) -> Unit = { context.sendBroadcast(it) },
+      publishAvatars: (Context, List<Long>) -> Unit = { ctx, threadIds -> WearAvatarPublisher.publishAvatars(ctx, threadIds) }
     ) {
       when (path) {
         WearBridgeProtocol.PATH_PING -> {
@@ -83,6 +89,7 @@ class WearBridgeListenerService : WearableListenerService() {
             try {
               val payload = WearBridgeRepository(context).recentConversations()
               responder.send(sourceNodeId, WearBridgeProtocol.PATH_CONVERSATIONS, WearBridgeProtocol.encode(payload))
+              publishAvatars(context, payload.conversations.map { it.threadId })
             } catch (e: Exception) {
               Log.w(TAG, "Failed to handle $path from $sourceNodeId", e)
             }

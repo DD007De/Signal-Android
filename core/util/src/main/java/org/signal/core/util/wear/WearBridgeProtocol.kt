@@ -32,6 +32,14 @@ object WearBridgeProtocol {
   const val PATH_MARK_READ = "/wear-bridge/action/mark-read" // watch -> phone; body is the thread ID as UTF-8 text
   const val PATH_MUTE = "/wear-bridge/action/mute" // watch -> phone; body is an encoded MuteRequest
 
+  // --- Milestone 4 Task C: real contact photos, sent as Data Layer Assets (phone -> watch). ---
+  // MessageClient (the paths above) caps messages at ~100KB; the Asset API doesn't, so per-thread
+  // avatar photos are published as their own DataItem at "$PATH_AVATAR/$threadId" rather than
+  // embedded in ConversationDto. Threads without a real photo (or with contact privacy hidden) have
+  // any stale DataItem at this path deleted instead, so the watch falls back to the colored-initials
+  // avatar from ConversationDto.avatarColor/initials.
+  const val PATH_AVATAR = "/wear-bridge/avatar"
+
   @PublishedApi
   internal val json = Json { ignoreUnknownKeys = true }
 
@@ -46,7 +54,12 @@ data class ConversationDto(
   val title: String,
   val lastBody: String,
   val timestamp: Long,
-  val unread: Int
+  val unread: Int,
+  // Milestone 4 Task A: enough to draw Signal's colored-circle-with-initials fallback avatar on the
+  // watch without sending photo bytes (MessageClient has a ~100KB message limit). Defaulted so
+  // older senders/receivers that don't know about these fields still round-trip cleanly.
+  val avatarColor: Int = 0,
+  val initials: String = ""
 )
 
 @Serializable

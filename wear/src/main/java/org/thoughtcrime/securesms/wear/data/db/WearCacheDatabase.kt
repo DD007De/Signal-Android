@@ -11,7 +11,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
  * phone. Backed by SQLCipher via [SupportOpenHelperFactory], with the passphrase generated once
  * and kept in [WearCachePassphrase]'s EncryptedSharedPreferences store.
  */
-@Database(entities = [WearConversationEntity::class], version = 1, exportSchema = false)
+@Database(entities = [WearConversationEntity::class], version = 2, exportSchema = false)
 abstract class WearCacheDatabase : RoomDatabase() {
 
   abstract fun wearConversationDao(): WearConversationDao
@@ -36,6 +36,12 @@ abstract class WearCacheDatabase : RoomDatabase() {
 
       return Room.databaseBuilder(context, WearCacheDatabase::class.java, DATABASE_NAME)
         .openHelperFactory(factory)
+        // Milestone 4 Task B bumped the schema (version 1 -> 2) to add the avatarColor/initials
+        // columns. The cache is disposable (it's a re-syncable snapshot of phone-side state, not a
+        // source of truth), so rather than writing a real Room Migration, a destructive migration
+        // just drops and recreates the table; the next PATH_CONVERSATIONS push from the phone
+        // repopulates it.
+        .fallbackToDestructiveMigration()
         .build()
     }
   }

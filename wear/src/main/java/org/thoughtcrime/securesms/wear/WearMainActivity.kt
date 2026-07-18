@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavType
@@ -15,6 +16,8 @@ import androidx.navigation.navArgument
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import com.google.android.gms.wearable.Wearable
+import org.signal.core.util.wear.WearBridgeProtocol
 import org.thoughtcrime.securesms.wear.bridge.WearDataClient
 import org.thoughtcrime.securesms.wear.data.WearConversationRepository
 import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
@@ -22,6 +25,7 @@ import org.thoughtcrime.securesms.wear.ui.ConversationListScreen
 import org.thoughtcrime.securesms.wear.ui.ConversationScreen
 import org.thoughtcrime.securesms.wear.ui.SignalWearTheme
 import org.thoughtcrime.securesms.wear.ui.WearConversationViewModel
+import org.thoughtcrime.securesms.wear.ui.resolveConversationTitle
 
 private const val ROUTE_CONVERSATIONS = "conversations"
 private const val ARG_THREAD_ID = "threadId"
@@ -59,6 +63,10 @@ class WearMainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
+    // Advertise the bridge capability at runtime so the phone can discover this watch (push / wipe /
+    // avatars). The static android_wear_capabilities resource is not reliably picked up by GmsCore.
+    Wearable.getCapabilityClient(applicationContext).addLocalCapability(WearBridgeProtocol.CAPABILITY)
+
     setContent {
       SignalWearTheme {
         val navController = rememberSwipeDismissableNavController()
@@ -85,8 +93,14 @@ class WearMainActivity : ComponentActivity() {
           ) { backStackEntry ->
             val threadId = backStackEntry.arguments?.getLong(ARG_THREAD_ID)
             if (threadId != null) {
+              val title = resolveConversationTitle(
+                conversations = conversations,
+                threadId = threadId,
+                fallback = stringResource(R.string.wear_conversation_title_fallback)
+              )
               ConversationScreen(
                 threadId = threadId,
+                title = title,
                 payload = messages,
                 onOpen = viewModel::open,
                 onReply = viewModel::reply,

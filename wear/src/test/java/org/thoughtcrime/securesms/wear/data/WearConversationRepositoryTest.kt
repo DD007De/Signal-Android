@@ -64,4 +64,20 @@ class WearConversationRepositoryTest {
       result
     )
   }
+
+  @Test
+  fun `conversations maps avatarColor and initials from the cached entity`() = runTest {
+    dao.upsertAll(
+      listOf(
+        WearConversationEntity(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 0, avatarColor = -0xffff01, initials = "A")
+      )
+    )
+
+    val result = repository.conversations().first()
+
+    assertEquals(
+      listOf(ConversationDto(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 0, avatarColor = -0xffff01, initials = "A")),
+      result
+    )
+  }
 }
