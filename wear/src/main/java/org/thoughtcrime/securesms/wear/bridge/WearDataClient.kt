@@ -81,25 +81,40 @@ class WearDataClient(private val context: Context) {
     return send(WearBridgeProtocol.PATH_MUTE, WearBridgeProtocol.encode(MuteRequest(threadId = threadId, muteUntil = muteUntil)))
   }
 
+  /** Tells the phone which thread the watch currently has open (or -1 for none), so it can skip a redundant notification. */
+  suspend fun reportVisibleThread(threadId: Long): Boolean = send(WearBridgeProtocol.PATH_VISIBLE_THREAD, threadId.toString().encodeToByteArray())
+
   /**
    * Finds the first reachable node advertising [WearBridgeProtocol.CAPABILITY] and sends [data] on
    * [path] to it. Shared, crash-safe send path for [ping], [requestConversations],
-   * [requestMessages], [sendReply], [markRead], and [mute].
+   * [requestMessages], [sendReply], [markRead], [mute], and [reportVisibleThread].
    *
    * @return true if a target node was found and the message was handed to the Data Layer; false if
    *   no node is reachable or the Data Layer call fails (e.g. GmsCore unavailable).
    */
   private suspend fun send(path: String, data: ByteArray): Boolean {
     return try {
-      val capabilityInfo = Wearable.getCapabilityClient(context)
+      val capabilityNodes = Wearable.getCapabilityClient(context)
         .getCapability(WearBridgeProtocol.CAPABILITY, CapabilityClient.FILTER_REACHABLE)
         .await()
+        .nodes
+        .map { it.id }
 
-      val nodeId = capabilityInfo.nodes.firstOrNull()?.id ?: return false
+      // Capability announcements don't always propagate phone <-> watch on every GmsCore build
+      // (notably some Samsung watches), so fall back to all connected nodes. Our message paths are
+      // bridge-specific, so a node without our companion app simply ignores them.
+      val targets = capabilityNodes.ifEmpty {
+        Wearable.getNodeClient(context).connectedNodes.await().map { it.id }
+      }
 
-      Wearable.getMessageClient(context)
-        .sendMessage(nodeId, path, data)
-        .await()
+      if (targets.isEmpty()) {
+        Log.w(TAG, "$path: no reachable node")
+        return false
+      }
+
+      targets.forEach { nodeId ->
+        Wearable.getMessageClient(context).sendMessage(nodeId, path, data).await()
+      }
 
       true
     } catch (e: CancellationException) {

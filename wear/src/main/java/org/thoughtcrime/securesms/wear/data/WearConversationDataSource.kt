@@ -36,4 +36,7 @@ interface WearConversationDataSource {
 
   /** Tells the paired phone to unmute [threadId]. */
   suspend fun unmute(threadId: Long)
+
+  /** Tells the paired phone which thread the watch currently has open (or `-1L` for none). */
+  suspend fun reportVisibleThread(threadId: Long)
 }

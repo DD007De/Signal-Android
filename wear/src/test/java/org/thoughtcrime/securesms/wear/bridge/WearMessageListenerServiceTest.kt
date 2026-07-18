@@ -18,6 +18,7 @@ import org.signal.core.util.wear.ConversationDto
 import org.signal.core.util.wear.ConversationsPayload
 import org.signal.core.util.wear.MessageDto
 import org.signal.core.util.wear.MessagesPayload
+import org.signal.core.util.wear.NotifyDto
 import org.signal.core.util.wear.WearBridgeProtocol
 import org.thoughtcrime.securesms.wear.data.WearAvatarCache
 import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
@@ -141,6 +142,26 @@ class WearMessageListenerServiceTest {
 
     assertEquals(payload, captured)
     // The conversation cache seeded above must be untouched — messages are never persisted to Room.
+    assertEquals(1, dao.observeAll().first().size)
+  }
+
+  @Test
+  fun `PATH_NOTIFY forwards the decoded payload to notify without touching the DAO`() = runTest {
+    dao.upsertAll(listOf(WearConversationEntity(threadId = 1L, title = "Alice", lastBody = "hi", timestamp = 100L, unread = 0)))
+
+    val payload = NotifyDto(threadId = 5L, title = "Alice", body = "hi there", timestamp = 100L)
+    var captured: NotifyDto? = null
+
+    WearMessageListenerService.handleIncoming(
+      path = WearBridgeProtocol.PATH_NOTIFY,
+      data = WearBridgeProtocol.encode(payload),
+      dao = dao,
+      onMessages = { throw AssertionError("PATH_NOTIFY should not invoke onMessages") },
+      notify = { captured = it }
+    )
+
+    assertEquals(payload, captured)
+    // The conversation cache seeded above must be untouched — notifications are never persisted to Room.
     assertEquals(1, dao.observeAll().first().size)
   }
 

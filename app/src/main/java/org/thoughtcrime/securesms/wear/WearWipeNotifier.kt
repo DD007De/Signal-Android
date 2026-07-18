@@ -2,8 +2,6 @@ package org.thoughtcrime.securesms.wear
 
 import android.content.Context
 import androidx.annotation.VisibleForTesting
-import com.google.android.gms.tasks.Tasks
-import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
 import org.signal.core.util.concurrent.SignalExecutors
 import org.signal.core.util.logging.Log
@@ -62,19 +60,11 @@ object WearWipeNotifier {
   fun onLogout(context: Context) {
     SignalExecutors.BOUNDED.execute {
       try {
-        wipeReachableNodes(reachableNodeIds(context), realResponder(context))
+        wipeReachableNodes(WearNodes.reachableOrConnected(context), realResponder(context))
       } catch (e: Exception) {
         Log.w(TAG, "Failed to notify watch of logout wipe", e)
       }
     }
-  }
-
-  private fun reachableNodeIds(context: Context): List<String> {
-    val capabilityInfo = Tasks.await(
-      Wearable.getCapabilityClient(context)
-        .getCapability(WearBridgeProtocol.CAPABILITY, CapabilityClient.FILTER_REACHABLE)
-    )
-    return capabilityInfo.nodes.map { it.id }
   }
 
   private fun realResponder(context: Context): WearBridgeListenerService.WearResponder = WearBridgeListenerService.WearResponder { nodeId, path, bytes ->

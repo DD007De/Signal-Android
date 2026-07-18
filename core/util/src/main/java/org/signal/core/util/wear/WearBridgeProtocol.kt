@@ -25,12 +25,20 @@ object WearBridgeProtocol {
   const val PATH_MESSAGES = "/wear-bridge/messages" // phone -> watch
   const val PATH_SEND_REPLY = "/wear-bridge/reply/send" // watch -> phone
 
+  // --- WEAR-005: per-message notification push (phone -> watch). Fired only for threads the phone
+  // itself alerts on, so the watch inherits mute / notification-privacy / DND / notifications-off.
+  const val PATH_NOTIFY = "/wear-bridge/notify"
+
   // --- Privacy hardening (cache wipe on logout / unpair). ---
   const val PATH_WIPE = "/wear-bridge/wipe" // phone -> watch; empty body, wipes the local cache
 
   // --- Milestone 3 conversation action paths (watch -> phone). ---
   const val PATH_MARK_READ = "/wear-bridge/action/mark-read" // watch -> phone; body is the thread ID as UTF-8 text
   const val PATH_MUTE = "/wear-bridge/action/mute" // watch -> phone; body is an encoded MuteRequest
+
+  // --- WEAR-005 follow-up: watch tells the phone which thread it currently has open, so the phone
+  // skips raising a redundant PATH_NOTIFY buzz for it. Body is the thread id as UTF-8 text; "-1" = none.
+  const val PATH_VISIBLE_THREAD = "/wear-bridge/visible-thread" // watch -> phone
 
   // --- Milestone 4 Task C: real contact photos, sent as Data Layer Assets (phone -> watch). ---
   // MessageClient (the paths above) caps messages at ~100KB; the Asset API doesn't, so per-thread
@@ -95,4 +103,16 @@ data class MuteRequest(
   val version: Int = WearBridgeProtocol.PROTOCOL_VERSION,
   val threadId: Long,
   val muteUntil: Long
+)
+
+@Serializable
+data class NotifyDto(
+  val version: Int = WearBridgeProtocol.PROTOCOL_VERSION,
+  val threadId: Long,
+  // Already privacy-filtered on the phone: title is the generic app name when contact privacy is
+  // hidden, body is blank when message privacy is hidden. The watch substitutes a localized generic
+  // string for a blank body; it never fabricates content.
+  val title: String,
+  val body: String,
+  val timestamp: Long
 )

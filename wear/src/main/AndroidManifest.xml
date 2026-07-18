@@ -3,6 +3,7 @@
 
   <uses-feature android:name="android.hardware.type.watch" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
   <application
       android:allowBackup="false"
@@ -22,7 +23,8 @@
 
     <activity
         android:name=".WearMainActivity"
-        android:exported="true">
+        android:exported="true"
+        android:launchMode="singleTop">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />

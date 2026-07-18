@@ -141,6 +141,10 @@ class WearBridgeListenerService : WearableListenerService() {
             }
           }
         }
+
+        WearBridgeProtocol.PATH_VISIBLE_THREAD -> {
+          WearWatchState.set(data.decodeToString().toLongOrNull() ?: -1L)
+        }
       }
     }
 

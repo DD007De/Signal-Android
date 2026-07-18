@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.signal.core.util.wear.ConversationDto
@@ -32,6 +33,21 @@ class WearConversationViewModel(private val repository: WearConversationDataSour
   /** The most recently received messages payload for whichever thread was last opened via [open]. */
   val messages: StateFlow<MessagesPayload?> = repository.messages
 
+  /** The thread most recently opened via [open], if any; re-requested when [conversations] changes. */
+  private var openThreadId: Long? = null
+
+  init {
+    // WEAR-005: a list push (e.g. an incoming message anywhere) can also touch the open thread. When
+    // that happens, re-request the open thread's messages so it refreshes without a manual pull.
+    // `drop(1)` skips the initial cached emission so `open()` itself doesn't trigger a double-fetch.
+    // Re-fetching messages does not itself change `conversations`, so there is no feedback loop.
+    viewModelScope.launch {
+      conversations.drop(1).collect {
+        openThreadId?.let { id -> repository.openThread(id) }
+      }
+    }
+  }
+
   /** Asks the paired phone to refresh the conversation list; see [WearConversationDataSource.refresh]. */
   fun refresh() {
     viewModelScope.launch { repository.refresh() }
@@ -39,6 +55,7 @@ class WearConversationViewModel(private val repository: WearConversationDataSour
 
   /** Opens [threadId], asking the paired phone for its recent messages; see [WearConversationDataSource.openThread]. */
   fun open(threadId: Long) {
+    openThreadId = threadId
     viewModelScope.launch { repository.openThread(threadId) }
   }
 
@@ -60,5 +77,15 @@ class WearConversationViewModel(private val repository: WearConversationDataSour
   /** Unmutes [threadId]; see [WearConversationDataSource.unmute]. */
   fun unmute(threadId: Long) {
     viewModelScope.launch { repository.unmute(threadId) }
+  }
+
+  /** Reports [threadId] as the thread currently open on the watch; see [WearConversationDataSource.reportVisibleThread]. */
+  fun setVisibleThread(threadId: Long) {
+    viewModelScope.launch { repository.reportVisibleThread(threadId) }
+  }
+
+  /** Reports that no thread is currently open on the watch; see [WearConversationDataSource.reportVisibleThread]. */
+  fun clearVisibleThread() {
+    viewModelScope.launch { repository.reportVisibleThread(-1L) }
   }
 }

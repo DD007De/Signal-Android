@@ -219,6 +219,10 @@ class DefaultMessageNotifier(context: Application) : MessageNotifier {
     previousState = state
     lastAudibleNotification = System.currentTimeMillis()
 
+    // WEAR-005: notify the watch for exactly the threads the phone alerted on, so mute /
+    // notification-privacy / notification-profiles / notifications-off are all honoured implicitly.
+    WearPushNotifier.pushMessageNotifications(context, threadsThatAlerted.map { it.threadId })
+
     updateReminderTimestamps(context, alertOverrides, threadsThatAlerted)
     NotificationThumbnails.removeAllExcept(state.notificationItems)
 

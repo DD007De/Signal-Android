@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,11 @@ private val BubbleMaxWidthFraction = 0.8f
  * [onMute]/[onUnmute] surface both mute and unmute actions rather than a single toggle: the watch
  * has no local record of a thread's mute state (the [org.signal.core.util.wear.ConversationDto]
  * wire DTO doesn't carry one in this increment), so there's nothing to toggle against.
+ *
+ * WEAR-005 follow-up: reports [threadId] to the paired phone via [onVisible] as long as this thread
+ * is open (on first composition and again if [threadId] changes), and [onHidden] when it leaves
+ * composition (navigating back to the list, or another destination replacing it) so the phone stops
+ * suppressing a [org.thoughtcrime.securesms.wear.WearPushNotifier] notification for it.
  */
 @Composable
 fun ConversationScreen(
@@ -75,11 +81,18 @@ fun ConversationScreen(
   onMarkRead: (Long) -> Unit,
   onMute: (Long) -> Unit,
   onUnmute: (Long) -> Unit,
+  onVisible: (Long) -> Unit,
+  onHidden: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   LaunchedEffect(threadId) {
     onOpen(threadId)
     onMarkRead(threadId)
+  }
+
+  DisposableEffect(threadId) {
+    onVisible(threadId)
+    onDispose { onHidden() }
   }
 
   val replyLabel = stringResource(R.string.wear_reply)

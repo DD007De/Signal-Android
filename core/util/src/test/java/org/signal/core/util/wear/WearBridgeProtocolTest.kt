@@ -83,4 +83,17 @@ class WearBridgeProtocolTest {
     val decoded: MuteRequest = WearBridgeProtocol.decode(WearBridgeProtocol.encode(request))
     assertEquals(request, decoded)
   }
+
+  @Test
+  fun `NotifyDto round-trips through encode-decode`() {
+    val dto = NotifyDto(threadId = 42L, title = "Jan Willem", body = "Hoi", timestamp = 1_700_000_000_000L)
+    val decoded = WearBridgeProtocol.decode<NotifyDto>(WearBridgeProtocol.encode(dto))
+    assertEquals(dto, decoded)
+  }
+
+  @Test
+  fun `NotifyDto with blank body (privacy-hidden) round-trips`() {
+    val dto = NotifyDto(threadId = 7L, title = "Signal", body = "", timestamp = 1L)
+    assertEquals(dto, WearBridgeProtocol.decode<NotifyDto>(WearBridgeProtocol.encode(dto)))
+  }
 }

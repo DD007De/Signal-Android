@@ -18,4 +18,8 @@
     <item>Onderweg</item>
     <item>Later meer</item>
   </string-array>
+
+  <!-- WearNotifier: PATH_NOTIFY push notification -->
+  <string name="wear_notify_channel_name">Berichten</string>
+  <string name="wear_notify_generic_body">Nieuw bericht</string>
 </resources>

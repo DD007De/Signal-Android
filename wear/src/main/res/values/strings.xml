@@ -22,4 +22,8 @@
     <item>On my way</item>
     <item>Talk later</item>
   </string-array>
+
+  <!-- WearNotifier: PATH_NOTIFY push notification -->
+  <string name="wear_notify_channel_name">Messages</string>
+  <string name="wear_notify_generic_body">New message</string>
 </resources>

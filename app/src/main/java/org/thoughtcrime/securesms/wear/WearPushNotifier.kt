@@ -2,11 +2,11 @@ package org.thoughtcrime.securesms.wear
 
 import android.content.Context
 import androidx.annotation.VisibleForTesting
-import com.google.android.gms.tasks.Tasks
-import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
 import org.signal.core.util.concurrent.SignalExecutors
 import org.signal.core.util.logging.Log
+import org.signal.core.util.wear.ConversationDto
+import org.signal.core.util.wear.NotifyDto
 import org.signal.core.util.wear.WearBridgeProtocol
 
 /**
@@ -32,7 +32,7 @@ object WearPushNotifier {
   fun onNotificationRefreshed(context: Context) {
     SignalExecutors.BOUNDED.execute {
       try {
-        val nodeIds = reachableNodeIds(context)
+        val nodeIds = WearNodes.reachableOrConnected(context)
         val threadIds = pushToReachableNodes(context, nodeIds, realResponder(context))
         if (nodeIds.isNotEmpty()) {
           // Milestone 4 Task C: real contact photos, over the Asset API rather than embedded in the
@@ -46,12 +46,23 @@ object WearPushNotifier {
     }
   }
 
-  private fun reachableNodeIds(context: Context): List<String> {
-    val capabilityInfo = Tasks.await(
-      Wearable.getCapabilityClient(context)
-        .getCapability(WearBridgeProtocol.CAPABILITY, CapabilityClient.FILTER_REACHABLE)
-    )
-    return capabilityInfo.nodes.map { it.id }
+  /**
+   * WEAR-005: push a per-message notification to the watch for [threadIds] — the threads the phone
+   * itself just alerted on ([org.thoughtcrime.securesms.notifications.v2.NotificationFactory.notify]'s
+   * return value). Runs on [SignalExecutors.BOUNDED], never throws back into the caller.
+   */
+  fun pushMessageNotifications(context: Context, threadIds: List<Long>) {
+    if (threadIds.isEmpty()) return
+    SignalExecutors.BOUNDED.execute {
+      try {
+        val nodeIds = WearNodes.reachableOrConnected(context)
+        if (nodeIds.isEmpty()) return@execute
+        val conversations = WearBridgeRepository(context).recentConversations().conversations
+        pushNotificationsToNodes(conversations, nodeIds, threadIds, realResponder(context), excludeThreadId = WearWatchState.visibleThreadId)
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to push message notification to watch", e)
+      }
+    }
   }
 
   private fun realResponder(context: Context): WearBridgeListenerService.WearResponder = WearBridgeListenerService.WearResponder { nodeId, path, bytes ->
@@ -85,5 +96,36 @@ object WearPushNotifier {
     }
 
     return payload.conversations.map { it.threadId }
+  }
+
+  /**
+   * WEAR-005: testable core of [pushMessageNotifications]. Given the already-read [conversations]
+   * list, sends a [NotifyDto] on [WearBridgeProtocol.PATH_NOTIFY] to every node in [nodeIds] for
+   * every thread in [threadIds] that has a matching conversation. Free of [Context]/DB so it unit
+   * tests without GmsCore, exactly like [pushToReachableNodes].
+   *
+   * A no-op when [nodeIds] or [threadIds] is empty. [excludeThreadId] (WEAR-005 follow-up) skips the
+   * thread the watch currently has open — it's already visible there via the inline auto-refresh, so
+   * a redundant buzz would be noise.
+   */
+  @VisibleForTesting
+  fun pushNotificationsToNodes(
+    conversations: List<ConversationDto>,
+    nodeIds: List<String>,
+    threadIds: List<Long>,
+    responder: WearBridgeListenerService.WearResponder,
+    excludeThreadId: Long = -1L
+  ) {
+    if (nodeIds.isEmpty() || threadIds.isEmpty()) return
+
+    val byThread = conversations.associateBy { it.threadId }
+    threadIds.forEach { threadId ->
+      if (threadId == excludeThreadId) return@forEach
+      val convo = byThread[threadId] ?: return@forEach
+      val bytes = WearBridgeProtocol.encode(
+        NotifyDto(threadId = threadId, title = convo.title, body = convo.lastBody, timestamp = convo.timestamp)
+      )
+      nodeIds.forEach { nodeId -> responder.send(nodeId, WearBridgeProtocol.PATH_NOTIFY, bytes) }
+    }
   }
 }
