@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Advertises the Wear bridge capability so the phone can discover this watch for the PUSH
+       (WearPushNotifier) and LOGOUT-WIPE (WearWipeNotifier) flows via
+       CapabilityClient#getCapability(CAPABILITY, FILTER_REACHABLE). Mirrors the phone's
+       app/src/main/res/values/wear.xml, which advertises the same capability so the watch can
+       find the phone (WEAR-001). -->
+  <string-array name="android_wear_capabilities">
+    <item>signal_wear_bridge</item>
+  </string-array>
+</resources>

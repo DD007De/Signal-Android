@@ -37,6 +37,18 @@
             android:host="*"
             android:pathPrefix="/wear-bridge/" />
       </intent-filter>
+      <!--
+        Privacy hardening (WEAR-002 Task 9): notifies WearMessageListenerService.onCapabilityChanged
+        whenever the set of reachable nodes advertising WearBridgeProtocol.CAPABILITY
+        ("signal_wear_bridge") changes, so the local cache can be wiped if the paired phone becomes
+        unreachable (unpair / uninstall). The `path` below must match WearBridgeProtocol.CAPABILITY.
+      -->
+      <intent-filter>
+        <action android:name="com.google.android.gms.wearable.CAPABILITY_CHANGED" />
+        <data
+            android:scheme="wear"
+            android:path="/signal_wear_bridge" />
+      </intent-filter>
     </service>
   </application>
 </manifest>

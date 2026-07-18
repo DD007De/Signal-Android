@@ -3,46 +3,97 @@ package org.thoughtcrime.securesms.wear
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.wear.compose.material.Button
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.wear.compose.material.MaterialTheme
-import androidx.wear.compose.material.Text
-import kotlinx.coroutines.launch
-import org.thoughtcrime.securesms.wear.bridge.LastReply
+import androidx.wear.compose.navigation.SwipeDismissableNavHost
+import androidx.wear.compose.navigation.composable
+import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import org.thoughtcrime.securesms.wear.bridge.WearDataClient
+import org.thoughtcrime.securesms.wear.data.WearConversationRepository
+import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
+import org.thoughtcrime.securesms.wear.ui.ConversationListScreen
+import org.thoughtcrime.securesms.wear.ui.ConversationScreen
+import org.thoughtcrime.securesms.wear.ui.WearConversationViewModel
+
+private const val ROUTE_CONVERSATIONS = "conversations"
+private const val ARG_THREAD_ID = "threadId"
+private const val ROUTE_CONVERSATION = "conversation/{$ARG_THREAD_ID}"
 
 /**
- * Milestone 1 (WEAR-001) entry screen: a single button that pings the paired phone over the Data
- * Layer and shows the pong reply reported by [LastReply].
+ * Milestone 2 (WEAR-002) entry screen: a two-destination [SwipeDismissableNavHost] — the
+ * conversation list ([ConversationListScreen]) and a single thread ([ConversationScreen]), reached
+ * by tapping a row. Replaces the Milestone 1 (WEAR-001) ping button; [WearMessageListenerService]'s
+ * pong handling ([org.thoughtcrime.securesms.wear.bridge.LastReply]) is untouched, it's just no
+ * longer surfaced by this Activity.
+ *
+ * [viewModel] is obtained through the standard [androidx.activity.viewModels] delegate (backed by a
+ * [ViewModelProvider.Factory]) rather than held as a plain field: that ties it to this Activity's
+ * [androidx.lifecycle.ViewModelStore], so `onCleared()` — and, with it, cancellation of
+ * `viewModelScope` and the `SharingStarted.Eagerly` Room-flow collector in
+ * [WearConversationViewModel.conversations] — actually runs when the Activity is finished, instead
+ * of leaking a new collector on every recreation.
  */
 class WearMainActivity : ComponentActivity() {
+
+  private val viewModel: WearConversationViewModel by viewModels {
+    object : ViewModelProvider.Factory {
+      override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        val repository = WearConversationRepository(
+          dao = WearCacheDatabase.getInstance(applicationContext).wearConversationDao(),
+          dataClient = WearDataClient(applicationContext)
+        )
+        @Suppress("UNCHECKED_CAST")
+        return WearConversationViewModel(repository) as T
+      }
+    }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
-    val dataClient = WearDataClient(applicationContext)
-
     setContent {
       MaterialTheme {
-        val scope = rememberCoroutineScope()
-        val reply by LastReply.state
+        val navController = rememberSwipeDismissableNavController()
+        val conversations by viewModel.conversations.collectAsState()
+        val messages by viewModel.messages.collectAsState()
 
-        Button(
-          onClick = {
-            scope.launch {
-              LastReply.state.value = "sending…"
-              // On success, leave the displayed state to WearMessageListenerService's pong so a fast
-              // reply is not clobbered; only report the no-node/failure case here.
-              if (!dataClient.ping()) {
-                LastReply.state.value = "no phone"
-              }
-            }
-          },
+        SwipeDismissableNavHost(
+          navController = navController,
+          startDestination = ROUTE_CONVERSATIONS,
           modifier = Modifier.fillMaxSize()
         ) {
-          Text(text = reply)
+          composable(ROUTE_CONVERSATIONS) {
+            ConversationListScreen(
+              conversations = conversations,
+              onRefresh = viewModel::refresh,
+              onOpen = { threadId -> navController.navigate("conversation/$threadId") },
+              modifier = Modifier.fillMaxSize()
+            )
+          }
+
+          composable(
+            route = ROUTE_CONVERSATION,
+            arguments = listOf(navArgument(ARG_THREAD_ID) { type = NavType.LongType })
+          ) { backStackEntry ->
+            val threadId = backStackEntry.arguments?.getLong(ARG_THREAD_ID)
+            if (threadId != null) {
+              ConversationScreen(
+                threadId = threadId,
+                payload = messages,
+                onOpen = viewModel::open,
+                onReply = viewModel::reply,
+                modifier = Modifier.fillMaxSize()
+              )
+            }
+          }
         }
       }
     }

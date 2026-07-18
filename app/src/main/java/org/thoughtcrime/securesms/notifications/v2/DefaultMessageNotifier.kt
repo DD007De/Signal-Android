@@ -30,6 +30,7 @@ import org.thoughtcrime.securesms.preferences.widgets.NotificationPrivacyPrefere
 import org.thoughtcrime.securesms.recipients.Recipient
 import org.thoughtcrime.securesms.service.KeyCachingService
 import org.thoughtcrime.securesms.util.BubbleUtil.BubbleState
+import org.thoughtcrime.securesms.wear.WearPushNotifier
 import org.whispersystems.signalservice.internal.util.Util
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
@@ -141,6 +142,12 @@ class DefaultMessageNotifier(context: Application) : MessageNotifier {
       Log.w(TAG, "Attempting to update notifications without local self, aborting")
       return
     }
+
+    // WEAR-005: keep the watch's conversation list in sync on EVERY notification refresh — the
+    // incoming-message path uses the per-conversation overload, which previously never pushed. Placed
+    // before the notifications-disabled / empty-state early returns because the watch's list mirrors
+    // conversations regardless of the phone's notification prefs (consistent with its pull path).
+    WearPushNotifier.onNotificationRefreshed(context)
 
     val currentLockStatus: Boolean = KeyCachingService.isLocked(context)
     val currentPrivacyPreference: NotificationPrivacyPreference = SignalStore.settings.messageNotificationsPrivacy

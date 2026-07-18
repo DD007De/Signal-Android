@@ -16,6 +16,7 @@ import org.thoughtcrime.securesms.database.model.InAppPaymentSubscriberRecord;
 import org.thoughtcrime.securesms.dependencies.AppDependencies;
 import org.thoughtcrime.securesms.groups.GroupManager;
 import org.thoughtcrime.securesms.net.SignalNetwork;
+import org.thoughtcrime.securesms.wear.WearWipeNotifier;
 import org.signal.core.util.ServiceUtil;
 import org.whispersystems.signalservice.api.NetworkResultUtil;
 import org.signal.network.exceptions.NonSuccessfulResponseCodeException;
@@ -108,6 +109,15 @@ class DeleteAccountRepository {
 
       Log.i(TAG, "deleteAccount: successfully removed account from server");
       Log.i(TAG, "deleteAccount: attempting to delete user data and close process...");
+
+      // Privacy hardening (WEAR-002 Task 9): fire the watch cache wipe only once local data is
+      // actually about to be wiped, i.e. once every earlier step that can fail and early-return
+      // (subscription-cancel, leave-groups, server-deletion) has already succeeded. Fired just
+      // before clearApplicationUserData() below so the fire-and-forget send has the most possible
+      // time to reach a paired watch before that call tears down this process. Self-guarded and
+      // off-thread; can never fail or block this flow. See WearWipeNotifier's KDoc for why this is
+      // the confirmed call site.
+      WearWipeNotifier.INSTANCE.onLogout(AppDependencies.getApplication());
 
       if (!ServiceUtil.getActivityManager(AppDependencies.getApplication()).clearApplicationUserData()) {
         Log.w(TAG, "deleteAccount: failed to delete user data");
