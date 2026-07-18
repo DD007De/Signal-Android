@@ -752,6 +752,8 @@ dependencies {
   }
   implementation(libs.google.play.services.maps)
   implementation(libs.google.play.services.auth)
+  // Wear OS companion bridge (WEAR-001). Direct coordinate for the spike; catalog + verification before upstream.
+  implementation("com.google.android.gms:play-services-wearable:19.0.0")
   implementation(libs.google.signin)
   implementation(libs.androidx.media)
   implementation(libs.bundles.media3)
