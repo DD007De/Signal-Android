@@ -41,6 +41,21 @@ class WearConversationRepository(
   /** Sends a reply [body] for [threadId] to the paired phone. */
   override suspend fun reply(threadId: Long, body: String): Boolean = dataClient.sendReply(threadId, body)
 
+  /** Tells the paired phone to mark [threadId] read. */
+  override suspend fun markRead(threadId: Long) {
+    dataClient.markRead(threadId)
+  }
+
+  /** Tells the paired phone to mute [threadId] indefinitely. */
+  override suspend fun mute(threadId: Long) {
+    dataClient.mute(threadId, muteUntil = Long.MAX_VALUE)
+  }
+
+  /** Tells the paired phone to unmute [threadId]. */
+  override suspend fun unmute(threadId: Long) {
+    dataClient.mute(threadId, muteUntil = 0L)
+  }
+
   /** Wipes the local conversation cache, e.g. on logout/unpair. */
   suspend fun clearCache() = dao.clear()
 

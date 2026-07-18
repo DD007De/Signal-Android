@@ -28,6 +28,10 @@ object WearBridgeProtocol {
   // --- Privacy hardening (cache wipe on logout / unpair). ---
   const val PATH_WIPE = "/wear-bridge/wipe" // phone -> watch; empty body, wipes the local cache
 
+  // --- Milestone 3 conversation action paths (watch -> phone). ---
+  const val PATH_MARK_READ = "/wear-bridge/action/mark-read" // watch -> phone; body is the thread ID as UTF-8 text
+  const val PATH_MUTE = "/wear-bridge/action/mute" // watch -> phone; body is an encoded MuteRequest
+
   @PublishedApi
   internal val json = Json { ignoreUnknownKeys = true }
 
@@ -71,4 +75,11 @@ data class ReplyRequest(
   val version: Int = WearBridgeProtocol.PROTOCOL_VERSION,
   val threadId: Long,
   val body: String
+)
+
+@Serializable
+data class MuteRequest(
+  val version: Int = WearBridgeProtocol.PROTOCOL_VERSION,
+  val threadId: Long,
+  val muteUntil: Long
 )

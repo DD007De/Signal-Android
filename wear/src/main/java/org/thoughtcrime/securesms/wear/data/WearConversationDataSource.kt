@@ -27,4 +27,13 @@ interface WearConversationDataSource {
 
   /** Sends a reply [body] for [threadId] to the paired phone. */
   suspend fun reply(threadId: Long, body: String): Boolean
+
+  /** Tells the paired phone to mark [threadId] read. */
+  suspend fun markRead(threadId: Long)
+
+  /** Tells the paired phone to mute [threadId] indefinitely. */
+  suspend fun mute(threadId: Long)
+
+  /** Tells the paired phone to unmute [threadId]. */
+  suspend fun unmute(threadId: Long)
 }

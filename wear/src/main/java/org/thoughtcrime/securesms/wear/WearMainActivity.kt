@@ -12,7 +12,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
-import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
@@ -21,6 +20,7 @@ import org.thoughtcrime.securesms.wear.data.WearConversationRepository
 import org.thoughtcrime.securesms.wear.data.db.WearCacheDatabase
 import org.thoughtcrime.securesms.wear.ui.ConversationListScreen
 import org.thoughtcrime.securesms.wear.ui.ConversationScreen
+import org.thoughtcrime.securesms.wear.ui.SignalWearTheme
 import org.thoughtcrime.securesms.wear.ui.WearConversationViewModel
 
 private const val ROUTE_CONVERSATIONS = "conversations"
@@ -60,7 +60,7 @@ class WearMainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
 
     setContent {
-      MaterialTheme {
+      SignalWearTheme {
         val navController = rememberSwipeDismissableNavController()
         val conversations by viewModel.conversations.collectAsState()
         val messages by viewModel.messages.collectAsState()
@@ -90,6 +90,9 @@ class WearMainActivity : ComponentActivity() {
                 payload = messages,
                 onOpen = viewModel::open,
                 onReply = viewModel::reply,
+                onMarkRead = viewModel::markRead,
+                onMute = viewModel::mute,
+                onUnmute = viewModel::unmute,
                 modifier = Modifier.fillMaxSize()
               )
             }

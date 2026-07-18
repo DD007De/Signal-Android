@@ -16,7 +16,9 @@ class WearBridgeProtocolTest {
       WearBridgeProtocol.PATH_REQUEST_MESSAGES,
       WearBridgeProtocol.PATH_MESSAGES,
       WearBridgeProtocol.PATH_SEND_REPLY,
-      WearBridgeProtocol.PATH_WIPE
+      WearBridgeProtocol.PATH_WIPE,
+      WearBridgeProtocol.PATH_MARK_READ,
+      WearBridgeProtocol.PATH_MUTE
     )
     paths.forEach { assertTrue("$it should be namespaced", it.startsWith("/wear-bridge/")) }
     assertEquals("all paths must be distinct", paths.size, paths.toSet().size)
@@ -57,6 +59,13 @@ class WearBridgeProtocolTest {
   fun reply_request_round_trips() {
     val request = ReplyRequest(threadId = 9, body = "hello from watch")
     val decoded: ReplyRequest = WearBridgeProtocol.decode(WearBridgeProtocol.encode(request))
+    assertEquals(request, decoded)
+  }
+
+  @Test
+  fun mute_request_round_trips() {
+    val request = MuteRequest(threadId = 11, muteUntil = 1_700_000_000_000L)
+    val decoded: MuteRequest = WearBridgeProtocol.decode(WearBridgeProtocol.encode(request))
     assertEquals(request, decoded)
   }
 }
